@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Product } from '@pickup-counter/shared';
 import { fetchProducts, createOrder } from './api/client';
 import { Navbar } from './components/Navbar';
 import { ProductCard } from './components/ProductCard';
 import { CartDrawer, CartItem } from './components/CartDrawer';
 import { PaymentModal } from './components/PaymentModal';
+import { sound } from './utils/audio';
 
 export const App: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -16,12 +17,26 @@ export const App: React.FC = () => {
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
   const [cartErrorMessage, setCartErrorMessage] = useState<string | null>(null);
 
+  // Category filter and search
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Toast feedback
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
   // Active Checkout / Payment State
   const [activeOrder, setActiveOrder] = useState<{
     orderId: string;
     totalPaise: number;
     expiresInSeconds: number;
   } | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((current) => (current === msg ? null : current));
+    }, 2800);
+  };
 
   const loadProducts = useCallback(async () => {
     try {
@@ -42,6 +57,9 @@ export const App: React.FC = () => {
 
   const handleAddToCart = (product: Product) => {
     setCartErrorMessage(null);
+    sound.playAddToCart();
+    showToast(`Added "${product.name}" to cart`);
+
     setCart((prevCart) => {
       const existing = prevCart.find((item) => item.product.id === product.id);
       if (existing) {
@@ -56,6 +74,7 @@ export const App: React.FC = () => {
 
   const handleUpdateQuantity = (productId: number, delta: number) => {
     setCartErrorMessage(null);
+    sound.playAddToCart();
     setCart((prevCart) => {
       return prevCart
         .map((item) => {
@@ -98,19 +117,33 @@ export const App: React.FC = () => {
       setCart([]);
       setIsCartOpen(false);
 
-      // Re-fetch products to show newly held units immediately
+      showToast('🔒 Stock reserved! 120s hold window activated');
       loadProducts();
     } catch (err: any) {
       console.error('Checkout error:', err);
       setCartErrorMessage(
         err.message || 'Could not place order. Inventory may have changed.',
       );
-      // Auto-refresh products on stock shortage as required by R9 / H5
       await loadProducts();
     } finally {
       setIsSubmittingOrder(false);
     }
   };
+
+  // Filtered products list
+  const filteredProducts = useMemo(() => {
+    return products.filter((prod) => {
+      const matchesSearch = prod.name.toLowerCase().includes(searchQuery.toLowerCase());
+      if (!matchesSearch) return false;
+
+      if (selectedCategory === 'all') return true;
+      if (selectedCategory === 'bakery') return prod.name.toLowerCase().includes('sourdough');
+      if (selectedCategory === 'beverage') return prod.name.toLowerCase().includes('brew') || prod.name.toLowerCase().includes('beans');
+      if (selectedCategory === 'craft') return prod.name.toLowerCase().includes('mug');
+      if (selectedCategory === 'pantry') return prod.name.toLowerCase().includes('honey');
+      return true;
+    });
+  }, [products, searchQuery, selectedCategory]);
 
   const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -118,14 +151,21 @@ export const App: React.FC = () => {
     <div className="app-layout">
       <Navbar cartCount={totalCartCount} onOpenCart={() => setIsCartOpen(true)} />
 
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="toast-notification">
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       <main className="main-content">
         {/* Hero Section */}
         <section className="hero-banner">
           <div className="hero-content">
-            <span className="hero-eyebrow">Fresh Daily · Counter Collection</span>
+            <span className="hero-eyebrow">MetroSober Provisions · Counter Collection</span>
             <h1 className="hero-heading">Craft Goods, Held Exclusively For You</h1>
             <p className="hero-description">
-              Select handmade sourdough, cold brews, and mountain provisions. Place an order to hold units on the counter for <strong>120 seconds</strong>, complete payment, and collect instantly at the locker.
+              Handmade sourdough, cold brew extractions, and organic mountain harvests. Place an order to hold units on the counter for <strong>120 seconds</strong>, pay securely with UPI or card, and unlock your pickup locker.
             </p>
             <div className="hero-stats">
               <div className="stat-pill">
@@ -138,7 +178,7 @@ export const App: React.FC = () => {
               </div>
               <div className="stat-pill">
                 <span className="stat-num">₹ Paise</span>
-                <span className="stat-lbl">Exact Accounting</span>
+                <span className="stat-lbl">Integer Accounting</span>
               </div>
             </div>
           </div>
@@ -146,19 +186,66 @@ export const App: React.FC = () => {
 
         {/* Catalog Section */}
         <section className="catalog-section">
-          <div className="section-header">
-            <div>
-              <h2 className="section-title">Counter Provisions</h2>
-              <p className="section-subtitle">Real-time stock with atomic hold locks</p>
+          <div className="catalog-controls-bar">
+            {/* Category Filter Pills */}
+            <div className="category-pills-list">
+              <button
+                className={`category-pill ${selectedCategory === 'all' ? 'is-active' : ''}`}
+                onClick={() => setSelectedCategory('all')}
+              >
+                All Provisions
+              </button>
+              <button
+                className={`category-pill ${selectedCategory === 'bakery' ? 'is-active' : ''}`}
+                onClick={() => setSelectedCategory('bakery')}
+              >
+                🥖 Bakery
+              </button>
+              <button
+                className={`category-pill ${selectedCategory === 'beverage' ? 'is-active' : ''}`}
+                onClick={() => setSelectedCategory('beverage')}
+              >
+                ☕ Cold Brew & Roasts
+              </button>
+              <button
+                className={`category-pill ${selectedCategory === 'craft' ? 'is-active' : ''}`}
+                onClick={() => setSelectedCategory('craft')}
+              >
+                🏺 Studio Ceramics
+              </button>
+              <button
+                className={`category-pill ${selectedCategory === 'pantry' ? 'is-active' : ''}`}
+                onClick={() => setSelectedCategory('pantry')}
+              >
+                🍯 Mountain Pantry
+              </button>
             </div>
-            <button className="btn btn-secondary btn-refresh" onClick={loadProducts}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M23 4v6h-6" />
-                <path d="M1 20v-6h6" />
-                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-              </svg>
-              Refresh Stock
-            </button>
+
+            {/* Search and Refresh */}
+            <div className="catalog-actions-right">
+              <div className="search-input-wrap">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search provisions..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="search-field"
+                />
+              </div>
+
+              <button className="btn btn-secondary btn-refresh" onClick={loadProducts}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M23 4v6h-6" />
+                  <path d="M1 20v-6h6" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+                Refresh Stock
+              </button>
+            </div>
           </div>
 
           {productError && (
@@ -173,9 +260,16 @@ export const App: React.FC = () => {
                 <div key={i} className="skeleton-card"></div>
               ))}
             </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="empty-catalog-state">
+              <p>No provisions matched your search criteria.</p>
+              <button className="btn btn-secondary" onClick={() => { setSearchQuery(''); setSelectedCategory('all'); }}>
+                Reset Filters
+              </button>
+            </div>
           ) : (
             <div className="products-grid">
-              {products.map((product) => {
+              {filteredProducts.map((product) => {
                 const inCart = cart.find((i) => i.product.id === product.id)?.quantity || 0;
                 return (
                   <ProductCard
