@@ -1,8 +1,21 @@
-import { Controller, Post, Get, Body, Param, UsePipes, HttpStatus, HttpCode } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Param,
+  UsePipes,
+  HttpStatus,
+  HttpCode,
+} from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { createOrderSchema, CreateOrderDto } from './orders.schema';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
-import { CreateOrderResponse, GetOrderResponse } from '@pickup-counter/shared';
+import {
+  CancelOrderResponse,
+  CreateOrderResponse,
+  GetOrderResponse,
+} from '@pickup-counter/shared';
 
 @Controller('orders')
 export class OrdersController {
@@ -18,5 +31,11 @@ export class OrdersController {
   @Get(':id')
   async getOrder(@Param('id') id: string): Promise<GetOrderResponse> {
     return this.ordersService.getOrder(id);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancelOrder(@Param('id') id: string): Promise<CancelOrderResponse> {
+    return this.ordersService.cancelOrder(id);
   }
 }

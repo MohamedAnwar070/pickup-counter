@@ -6,7 +6,15 @@ export interface ProductRow {
   name: string;
   price_paise: number;
   stock: number;
+  category: string;
+  description: string;
+  image_url: string;
+  tagline: string;
 }
+
+const PRODUCT_COLUMNS = `
+  id, name, price_paise, stock, category, description, image_url, tagline
+`;
 
 @Injectable()
 export class ProductsRepo {
@@ -14,7 +22,7 @@ export class ProductsRepo {
 
   async findAll(): Promise<ProductRow[]> {
     const result = await this.db.query<ProductRow>(
-      'SELECT id, name, price_paise, stock FROM products ORDER BY id ASC',
+      `SELECT ${PRODUCT_COLUMNS} FROM products ORDER BY id ASC`,
     );
     return result.rows;
   }
@@ -22,7 +30,7 @@ export class ProductsRepo {
   async findByIds(ids: number[]): Promise<ProductRow[]> {
     if (ids.length === 0) return [];
     const result = await this.db.query<ProductRow>(
-      'SELECT id, name, price_paise, stock FROM products WHERE id = ANY($1) ORDER BY id ASC',
+      `SELECT ${PRODUCT_COLUMNS} FROM products WHERE id = ANY($1) ORDER BY id ASC`,
       [ids],
     );
     return result.rows;

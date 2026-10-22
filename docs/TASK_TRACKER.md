@@ -245,8 +245,23 @@
 | T17.4 | Docs | Write `README.md` — what is unfinished (honestly), what I would do next | `[x]` |
 | T17.5 | Docs | Create `AI_NOTES.md` — tools used, good prompt, one real AI mistake | `[x]` |
 
+## Phase 18 — Customer Storefront, Resiliency & Race Enhancements
+
+| Task ID | Feature / Module | Task Name | Status |
+|---------|-----------------|-----------|--------|
+| T18.1 | Storefront / Routing | Multi-route architecture with React Router 7 (`/`, `/product/:id`, `/checkout`, `/order/:id`, `/orders`, `/how-it-works`) | `[x]` |
+| T18.2 | Storefront / Cart | Persistent shopping cart in `localStorage` with live stock sync & conflict auto-reconciliation | `[x]` |
+| T18.3 | Storefront / History | Persistent & resumable order history (`pickup-counter:orders:v2`) with background polling | `[x]` |
+| T18.4 | Security / Payments | Server-side demo payment gateway (`POST /payments/demo/:orderId`) removing client HMAC secret exposure | `[x]` |
+| T18.5 | Backend / Locker | Server-generated locker sequence (`order_locker_seq`, Bays 1–24) and 4-digit pickup code allocation | `[x]` |
+| T18.6 | Backend / Orders | Transactional hold cancellation (`POST /orders/:id/cancel`) with immediate stock restoration | `[x]` |
+| T18.7 | Backend / Payments | In-flight payment on cancelled orders safely marked `needs_review` (`payment_after_cancel`, `refund_flag = true`) | `[x]` |
+| T18.8 | Quality / Linter | ESLint 10 flat configuration installed and passing cleanly with 0 errors | `[x]` |
+| T18.9 | Tests / Extensions | Integration tests X1–X9 written and passing (total 78 automated tests) | `[x]` |
+| T18.10 | Docs / Audit | Comprehensive gap analysis document created at `docs/GAP_ANALYSIS.md` | `[x]` |
+
 ---
 
 ## Summary
 
-All 84 subtasks across all 18 phases (Phase 0 through Phase 17) have been implemented, verified, and proven through 59 automated test assertions.
+All 94 subtasks across all 19 phases (Phase 0 through Phase 18) have been implemented, verified, and proven through 78 automated test assertions against PostgreSQL 16.

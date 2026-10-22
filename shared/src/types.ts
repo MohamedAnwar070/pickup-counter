@@ -10,6 +10,10 @@ export interface Product {
   pricePaise: number;
   stock: number;
   availableUnits: number;
+  category: string;
+  description: string;
+  imageUrl: string;
+  tagline: string;
 }
 
 export interface OrderItem {
@@ -48,19 +52,48 @@ export interface CreateOrderResponse {
   expiresInSeconds: number;
 }
 
+export interface CancelOrderResponse {
+  id: string;
+  status: OrderStatus;
+}
+
+export interface StockShortage {
+  productId: number;
+  name: string;
+  requested: number;
+  available: number;
+}
+
 export interface GetOrderResponse {
   id: string;
   status: OrderStatus;
   totalPaise: number;
   expiresInSeconds: number;
+  holdSeconds: number;
+  expiresAt?: string;
+  createdAt?: string;
+  paidAt?: string | null;
+  pickedUpAt?: string | null;
+  cancelledAt?: string | null;
   reviewReason?: string | null;
   refundFlag?: boolean;
+  lockerNumber?: number | null;
+  pickupCode?: string | null;
   items?: Array<{
     productId: number;
     name?: string;
     quantity: number;
     unitPricePaise: number;
   }>;
+}
+
+export interface HealthResponse {
+  status: string;
+  database: string;
+  demoMode: boolean;
+  holdSeconds: number;
+  uptime?: number;
+  timestamp?: string;
 }
 
 export interface WebhookPayload {

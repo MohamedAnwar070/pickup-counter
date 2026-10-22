@@ -1,5 +1,7 @@
 export {
   HOLD_SECONDS,
+  MAX_ORDER_QUANTITY,
+  MAX_ORDER_LINES,
   ORDER_STATUSES,
   WEBHOOK_OUTCOMES,
   REVIEW_REASONS,
@@ -17,6 +19,9 @@ export type {
   CreateOrderRequest,
   CreateOrderResponse,
   GetOrderResponse,
+  CancelOrderResponse,
+  StockShortage,
+  HealthResponse,
   WebhookPayload,
   WebhookResponse,
   PickupClaimResponse,

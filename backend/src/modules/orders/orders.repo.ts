@@ -13,6 +13,9 @@ export interface OrderDetailRow {
   review_reason: string | null;
   refund_flag: boolean;
   picked_up_at: string | null;
+  cancelled_at: string | null;
+  locker_number: number | null;
+  pickup_code: string | null;
   created_at: string;
   expires_in_seconds: number;
 }
@@ -29,7 +32,9 @@ export class OrdersRepo {
   constructor(private readonly db: DatabaseService) {}
 
   /**
-   * Inserts an order and its items in a transaction using the database clock for expires_at.
+   * Inserts an order and its items in a transaction using the database clock
+   * for expires_at. A lane number and a four-digit pickup code are allocated
+   * once and remain stable for the life of the order.
    */
   async createOrderInTx(
     client: PoolClient,
@@ -38,11 +43,19 @@ export class OrdersRepo {
     items: Array<{ productId: number; quantity: number; unitPricePaise: number }>,
   ): Promise<{ orderId: string; status: OrderStatus; totalPaise: number; expiresInSeconds: number }> {
     const orderSql = `
-      INSERT INTO orders (status, total_paise, expires_at)
+      INSERT INTO orders (
+        status,
+        total_paise,
+        expires_at,
+        locker_number,
+        pickup_code
+      )
       VALUES (
         'pending',
         $1,
-        clock_timestamp() + ($2 || ' seconds')::interval
+        clock_timestamp() + ($2 || ' seconds')::interval,
+        ((nextval('order_locker_seq') - 1) % 24) + 1,
+        lpad((floor(random() * 10000))::int::text, 4, '0')
       )
       RETURNING
         id,
@@ -60,7 +73,6 @@ export class OrdersRepo {
 
     const order = orderRes.rows[0];
 
-    // Insert order items
     for (const item of items) {
       await client.query(
         `INSERT INTO order_items (order_id, product_id, quantity, unit_price_paise)
@@ -78,10 +90,10 @@ export class OrdersRepo {
   }
 
   /**
-   * Finds order by ID with expire-on-read guarantee using the database clock.
+   * Finds an order by ID with the expire-on-read guarantee. The database clock
+   * is authoritative; no client timestamp is ever trusted.
    */
   async findById(id: string): Promise<{ order: OrderDetailRow; items: OrderItemDetailRow[] } | null> {
-    // Expire-on-read: if hold time passed and still pending, mark expired immediately
     await this.db.query(
       `UPDATE orders
        SET status = 'expired'
@@ -100,6 +112,9 @@ export class OrdersRepo {
         o.review_reason,
         o.refund_flag,
         o.picked_up_at,
+        o.cancelled_at,
+        o.locker_number,
+        o.pickup_code,
         o.created_at,
         GREATEST(0, CEIL(EXTRACT(EPOCH FROM (o.expires_at - clock_timestamp()))))::int AS expires_in_seconds
       FROM orders o

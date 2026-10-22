@@ -28,6 +28,10 @@ export class ProductsService {
         pricePaise: p.price_paise,
         stock: p.stock,
         availableUnits,
+        category: p.category,
+        description: p.description,
+        imageUrl: p.image_url,
+        tagline: p.tagline,
       };
     });
   }

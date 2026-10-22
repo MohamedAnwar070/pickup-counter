@@ -35,23 +35,26 @@ docker compose up --build
 - **API**: http://localhost:3000
 - **PostgreSQL**: localhost:5432
 
-### Running Tests
+### Running Tests & Quality Checks
 
 ```bash
-# Run all 59 unit, integration, and concurrency tests:
+# 1. Run all 78 unit, integration, and concurrency tests (0 mocks, real PostgreSQL):
 npm test
+
+# 2. Run ESLint code quality checks:
+npm run lint
 ```
 
-Expected output:
+Expected test output:
 ```
 PASS src/test/countdown.spec.ts
 PASS src/test/integration.spec.ts
 PASS src/common/unit.spec.ts
 
 Test Suites: 3 passed, 3 total
-Tests:       59 passed, 59 total
+Tests:       78 passed, 78 total
 Snapshots:   0 total
-Time:        16.67 s
+Time:        20.61 s
 ```
 
 ### Sending Signed Webhooks (CLI)
@@ -111,6 +114,10 @@ npm run send-webhook -- --orderId <UUID> --amount <PAISE> --eventId evt_fixed_id
 ```
 pending ────── valid payment in time ─────────► paid ────── pickup ──────► picked_up
    │
+   ├────── customer cancels hold ─────────────► cancelled (stock restored immediately)
+   │                                               │
+   │                                               └─ payment in-flight ─► needs_review (payment_after_cancel, refund_flag=true)
+   │
    ├────── 120s pass without payment ─────────► expired
    ├────── wrong payment amount ──────────────► needs_review (amount_mismatch)
    ├────── late payment, stock gone ──────────► needs_review (late_payment_stock_gone, refund_flag=true)
@@ -118,12 +125,12 @@ pending ────── valid payment in time ─────────► 
 
 expired (after sweeper or read)
    ├────── late payment, stock still free ────► paid (outcome: paid_late)
-   ├────── late payment, stock gone ──────────► needs_review (refund_flag=true)
+   ├────── late payment, stock gone ──────────► needs_review (late_payment_stock_gone, refund_flag=true)
    └────── wrong payment amount ──────────────► needs_review (amount_mismatch)
 ```
 
 - **Allowed moves only:** Transitions are enforced conditionally (`WHERE status = ...`).
-- **Terminal states:** `picked_up` and `needs_review` are immutable and never transition further without human staff intervention.
+- **Terminal states:** `picked_up`, `cancelled`, and `needs_review` are immutable and never transition further without human staff intervention.
 
 ---
 
@@ -195,7 +202,7 @@ The prompt specifies that inventory is physically deducted only upon locker pick
 
 ## 7. How Correctness Was Checked
 
-59 automated tests execute across 3 test suites against an active PostgreSQL test instance (`pickup_test`), verifying:
+78 automated tests execute across 3 test suites against an active PostgreSQL test instance (`pickup_test`), verifying:
 
 1. **R1 Catalog & Stock (A1–A6):** Accurate available units calculation; stock reductions reflected in real time.
 2. **R2 Order Placement & Concurrency (B1–B16):** Duplicate product merging, server-side price computation, insufficient stock rollback, 404s, and 400s.
@@ -206,8 +213,18 @@ The prompt specifies that inventory is physically deducted only upon locker pick
 7. **R6 Amount Mismatch & Capture (D1, D14–D17):** Amount differences route to `needs_review` and release stock; non-captured events ignored.
 8. **R7 Late Payment (D18–D20):** Payment after expiry succeeds if shelf has stock; routes to `needs_review` with `refund_flag` if stock was taken.
 9. **R8 Pickup Claim Concurrency (E1–E11, E9):** Atomic update ensures only one locker claim wins (200), simultaneous claim returns 409 `ALREADY_CLAIMED`, stock decremented exactly once.
-10. **Unit Logic (G1–G7):** Table-driven tests for webhook decisions, timing-safe HMAC verification, monotonic clock arithmetic, and currency conversion.
-11. **Frontend Robustness (H1–H3):** Device clock shifted 10 minutes ahead has 0% impact on countdown; monotonic timer handles server re-sync without client-side state drift.
+10. **Storefront & Concurrency Extensions (X1–X9):**
+    - `X1`: `POST /orders/:id/cancel` immediately releases held stock and restores `availableUnits`.
+    - `X2`: `POST /orders/:id/cancel` is idempotent on already-cancelled holds.
+    - `X3`: Cancellation rejected with 409 `NOT_CANCELLABLE` if already paid or collected.
+    - `X4`: `POST /orders` returns 409 with itemized `details.shortages` array for basket reconciliation.
+    - `X5`: Line item quantity (max 99) and order lines (max 20) strictly validated.
+    - `X6`: Server-generated locker bay (1–24 sequence) and 4-digit pickup code assigned.
+    - `X7`: Demo payment endpoint safely transitions order to `paid` using DB-authoritative amount.
+    - `X8`: Payment captured after customer cancellation flags `needs_review` with `payment_after_cancel` and `refund_flag=true`.
+    - `X9`: `GET /health` reports `demoMode` and `holdSeconds` runtime flags.
+11. **Unit Logic (G1–G7):** Table-driven tests for webhook decisions, timing-safe HMAC verification, monotonic clock arithmetic, and currency conversion.
+12. **Frontend Robustness (H1–H3):** Device clock shifted 10 minutes ahead has 0% impact on countdown; monotonic timer handles server re-sync without client-side state drift.
 
 ---
 

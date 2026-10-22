@@ -40,3 +40,13 @@ Explicitly specifying the ascending sort order (`ORDER BY id ASC FOR UPDATE`) el
 - **What happened:** The initial UUID validation regex `/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i` strictly checked for UUID versions 1–5 and RFC 4122 variant bits (`89ab`). When test `B8` queried `00000000-0000-0000-0000-000000000000` (the standard nil UUID), the endpoint rejected it with `400 INVALID_UUID` instead of allowing PostgreSQL to check existence and returning `404 ORDER_NOT_FOUND`.
 - **How it was caught:** Test `B8` failed with `expected 404 "Not Found", got 400 "Bad Request"`.
 - **Resolution:** Updated `UUID_REGEX` to accept standard 8-4-4-4-12 hex formatting (`/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`), correctly distinguishing malformed strings (400) from syntactically valid non-existent UUIDs (404).
+
+### Mistake 4: Dev Server Proxy Colliding with Client-Side Route `/orders`
+- **What happened:** In `vite.config.ts` and `nginx.conf`, requests starting with `/orders` were indiscriminately proxied to the NestJS backend (`http://localhost:3000/orders`). While client-side in-app SPA link transitions worked, directly reloading or navigating to `http://localhost:5173/orders` in the browser caused Vite/Nginx to forward the request to the NestJS backend. Since NestJS has no `GET /orders` endpoint, it responded with `404 Cannot GET /orders`.
+- **How it was caught:** Taking a direct browser screenshot of `http://localhost:5173/orders` returned a blank screen containing raw JSON `{"error":{"code":"Not Found","message":"Cannot GET /orders"}}`.
+- **Resolution:** Added a `bypass` predicate in `vite.config.ts` (`if (req.headers.accept?.includes('text/html')) return '/index.html'`) and an nginx rewrite rule (`if ($request_method = GET) { rewrite ^/orders/?$ /index.html break; }`) so that HTML page navigations correctly load the React SPA while API mutations (`POST /orders`, `GET /orders/:id`) continue proxying to the backend.
+
+### Mistake 5: Missing ESLint Toolchain Causing Script Failure
+- **What happened:** The repository root declared `"lint": "npm run lint --workspaces --if-present"`, and `backend/package.json` had `"lint": "eslint src"`, but neither `eslint` nor TypeScript parser plugins were installed in `devDependencies`. Running `npm run lint` threw `'eslint' is not recognized as an internal or external command`.
+- **How it was caught:** Explicitly testing `npm run lint` failed with exit code 1.
+- **Resolution:** Installed `eslint`, `@typescript-eslint/parser`, and `@typescript-eslint/eslint-plugin`, created a modern flat config `eslint.config.mjs`, and verified that `npm run lint` passes across all files with 0 warnings and 0 errors.

@@ -7,6 +7,10 @@ import { envSchema } from './env.schema';
   imports: [
     NestConfigModule.forRoot({
       isGlobal: true,
+      // npm workspaces run from backend/, so read both backend/.env and the
+      // repository-level .env. Tests supply environment variables directly.
+      envFilePath: ['.env', '../.env'],
+      ignoreEnvFile: process.env.NODE_ENV === 'test',
       validate: (config: Record<string, unknown>) => {
         const parsed = envSchema.safeParse(config);
         if (!parsed.success) {

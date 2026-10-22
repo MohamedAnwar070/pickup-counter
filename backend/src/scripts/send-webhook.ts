@@ -2,9 +2,9 @@ import * as crypto from 'crypto';
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
-import * as dotenv from 'dotenv';
+import { loadLocalEnv } from '../common/config/load-env';
 
-dotenv.config();
+loadLocalEnv();
 
 function parseArgs(): Record<string, string | boolean> {
   const args = process.argv.slice(2);

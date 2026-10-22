@@ -7,8 +7,8 @@ export const webhookPayloadSchema = z
     event_id: z.string().optional(),
     orderId: z.string().optional(),
     order_id: z.string().optional(),
-    amountPaise: z.number().int().optional(),
-    amount_paise: z.number().int().optional(),
+    amountPaise: z.number().int().nonnegative().optional(),
+    amount_paise: z.number().int().nonnegative().optional(),
     status: z.string(),
   })
   .refine((data) => !!(data.eventId || data.event_id), {
@@ -75,6 +75,16 @@ export function decideWebhookOutcome(input: WebhookDecisionInput): WebhookDecisi
     return { outcome: 'ignored' };
   }
 
+  // A captured payment after an explicit cancellation must be reviewed and
+  // refunded rather than silently kept or used to revive the order.
+  if (input.orderStatus === 'cancelled') {
+    return {
+      outcome: 'needs_review',
+      reviewReason: 'payment_after_cancel',
+      refundFlag: true,
+    };
+  }
+
   // Check amount mismatch
   if (
     input.orderTotalPaise !== undefined &&
@@ -112,13 +122,14 @@ export function canTransition(from: OrderStatus, to: OrderStatus): boolean {
 
   switch (from) {
     case 'pending':
-      return to === 'paid' || to === 'expired' || to === 'needs_review';
+      return to === 'paid' || to === 'expired' || to === 'needs_review' || to === 'cancelled';
     case 'expired':
       return to === 'paid' || to === 'needs_review';
     case 'paid':
       return to === 'picked_up';
     case 'needs_review':
     case 'picked_up':
+    case 'cancelled':
       return false;
     default:
       return false;

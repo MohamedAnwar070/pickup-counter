@@ -123,6 +123,20 @@ describe('Unit Tests (G1 - G7)', () => {
         }).outcome,
       ).toBe('ignored');
     });
+
+    it('should flag payment after cancellation for review and refund before amount checks', () => {
+      const res = decideWebhookOutcome({
+        eventStatus: 'captured',
+        orderExists: true,
+        orderStatus: 'cancelled',
+        orderTotalPaise: 35000,
+        paidAmountPaise: 1,
+        isOrderExpired: false,
+      });
+      expect(res.outcome).toBe('needs_review');
+      expect(res.reviewReason).toBe('payment_after_cancel');
+      expect(res.refundFlag).toBe(true);
+    });
   });
 
   describe('G2: verifySignature', () => {
@@ -228,6 +242,13 @@ describe('Unit Tests (G1 - G7)', () => {
       expect(canTransition('paid', 'picked_up')).toBe(true);
       expect(canTransition('paid', 'expired')).toBe(false);
       expect(canTransition('paid', 'needs_review')).toBe(false);
+    });
+
+    it('allows pending -> cancelled, but nothing leaves cancelled', () => {
+      expect(canTransition('pending', 'cancelled')).toBe(true);
+      expect(canTransition('cancelled', 'pending')).toBe(false);
+      expect(canTransition('cancelled', 'paid')).toBe(false);
+      expect(canTransition('cancelled', 'needs_review')).toBe(false);
     });
 
     it('disallows transitions out of picked_up or needs_review', () => {

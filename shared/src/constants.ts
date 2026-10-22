@@ -1,4 +1,6 @@
 export const HOLD_SECONDS = 120;
+export const MAX_ORDER_QUANTITY = 99;
+export const MAX_ORDER_LINES = 20;
 
 export const ORDER_STATUSES = [
   'pending',
@@ -6,6 +8,7 @@ export const ORDER_STATUSES = [
   'expired',
   'needs_review',
   'picked_up',
+  'cancelled',
 ] as const;
 
 export const WEBHOOK_OUTCOMES = [
@@ -18,6 +21,7 @@ export const WEBHOOK_OUTCOMES = [
 export const REVIEW_REASONS = {
   AMOUNT_MISMATCH: 'amount_mismatch',
   LATE_PAYMENT_STOCK_GONE: 'late_payment_stock_gone',
+  PAYMENT_AFTER_CANCEL: 'payment_after_cancel',
 } as const;
 
 export const ERROR_CODES = {
@@ -29,4 +33,6 @@ export const ERROR_CODES = {
   NOT_CLAIMABLE: 'NOT_CLAIMABLE',
   INVALID_SIGNATURE: 'INVALID_SIGNATURE',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
+  NOT_CANCELLABLE: 'NOT_CANCELLABLE',
+  DEMO_DISABLED: 'DEMO_DISABLED',
 } as const;

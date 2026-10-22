@@ -47,12 +47,12 @@ describe('Pickup Counter Integration & Concurrency Tests', () => {
     await pool.query('TRUNCATE payment_events, order_items, orders, products RESTART IDENTITY CASCADE');
 
     await pool.query(`
-      INSERT INTO products (id, name, price_paise, stock) VALUES
-      (1, 'Artisan Sourdough Loaf', 35000, 10),
-      (2, 'Cold Brew Concentrate', 42000, 8),
-      (3, 'Handmade Ceramic Mug', 65000, 2),
-      (4, 'Organic Mountain Honey', 48000, 12),
-      (5, 'Espresso Roast Beans', 55000, 15)
+      INSERT INTO products (id, name, price_paise, stock, category, description, image_url, tagline) VALUES
+      (1, 'Artisan Sourdough Loaf', 35000, 10, 'Bakery', 'Naturally fermented 36-hour dough.', '/images/products/sourdough.jpg', 'Baked fresh at 6 AM'),
+      (2, 'Cold Brew Concentrate', 42000, 8, 'Cold Brew & Roasts', 'Single-origin cold-water extraction.', '/images/products/coldbrew.jpg', 'Steeped for 20 hours'),
+      (3, 'Handmade Ceramic Mug', 65000, 2, 'Studio Ceramics', 'Hand-thrown terracotta mug.', '/images/products/ceramic-mug.jpg', 'Hand-thrown in the studio'),
+      (4, 'Organic Mountain Honey', 48000, 12, 'Mountain Pantry', 'Raw wildflower honey.', '/images/products/honey.jpg', '100% raw and wild'),
+      (5, 'Espresso Roast Beans', 55000, 15, 'Cold Brew & Roasts', 'Small-batch espresso beans.', '/images/products/coffee-beans.jpg', 'Medium-dark roast')
     `);
   });
 
@@ -70,6 +70,10 @@ describe('Pickup Counter Integration & Concurrency Tests', () => {
       expect(mug.pricePaise).toBe(65000);
       expect(mug.stock).toBe(2);
       expect(mug.availableUnits).toBe(2);
+      expect(mug.category).toBe('Studio Ceramics');
+      expect(mug.description).toContain('terracotta');
+      expect(mug.imageUrl).toBe('/images/products/ceramic-mug.jpg');
+      expect(mug.tagline).toBe('Hand-thrown in the studio');
     });
 
     it('A2: availableUnits decreases when an order is held', async () => {
@@ -218,6 +222,226 @@ describe('Pickup Counter Integration & Concurrency Tests', () => {
         .get('/orders/00000000-0000-0000-0000-000000000000')
         .expect(404);
       expect(res.body.error.code).toBe('ORDER_NOT_FOUND');
+    });
+
+    it('B21: merged duplicate quantities cannot bypass the per-product maximum', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/orders')
+        .send({
+          items: [
+            { productId: 1, quantity: 60 },
+            { productId: 1, quantity: 60 },
+          ],
+        })
+        .expect(400);
+
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.message).toContain('cannot exceed 99');
+      const dbOrders = await pool.query('SELECT COUNT(*)::int AS count FROM orders');
+      expect(dbOrders.rows[0].count).toBe(0);
+    });
+
+    it('B22: race response lists every affected line and holds nothing', async () => {
+      // Take the last two mugs, then try to reserve mugs plus more cold brew than exists.
+      await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 3, quantity: 2 }] })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .post('/orders')
+        .send({
+          items: [
+            { productId: 3, quantity: 1 },
+            { productId: 2, quantity: 9 },
+          ],
+        })
+        .expect(409);
+
+      expect(res.body.error.code).toBe('INSUFFICIENT_STOCK');
+      const shortages = res.body.error.details.shortages;
+      expect(shortages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ productId: 3, requested: 1, available: 0 }),
+          expect.objectContaining({ productId: 2, requested: 9, available: 8 }),
+        ]),
+      );
+
+      // Only the first hold exists; the failed request held neither line.
+      const dbOrders = await pool.query('SELECT COUNT(*)::int AS count FROM orders');
+      expect(dbOrders.rows[0].count).toBe(1);
+      const products = await request(app.getHttpServer()).get('/products').expect(200);
+      expect(products.body.find((p: any) => p.id === 2).availableUnits).toBe(8);
+      expect(products.body.find((p: any) => p.id === 3).availableUnits).toBe(0);
+    });
+  });
+
+  // -------------------------------------------------------------
+  // R9 extensions: cancellable holds, demo checkout, locker details
+  // -------------------------------------------------------------
+  describe('R9: customer cancellation and resumable orders', () => {
+    it('B23: cancelling a pending hold releases stock and is idempotent', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 3, quantity: 2 }] })
+        .expect(201);
+
+      const productsBefore = await request(app.getHttpServer()).get('/products').expect(200);
+      expect(productsBefore.body.find((p: any) => p.id === 3).availableUnits).toBe(0);
+
+      const cancel = await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/cancel`)
+        .expect(200);
+      expect(cancel.body).toEqual({ id: order.body.orderId, status: 'cancelled' });
+
+      const productsAfter = await request(app.getHttpServer()).get('/products').expect(200);
+      expect(productsAfter.body.find((p: any) => p.id === 3).availableUnits).toBe(2);
+
+      const details = await request(app.getHttpServer())
+        .get(`/orders/${order.body.orderId}`)
+        .expect(200);
+      expect(details.body.status).toBe('cancelled');
+      expect(details.body.cancelledAt).toBeTruthy();
+
+      // Retrying cancellation is harmless and does not change the timestamp.
+      const retry = await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/cancel`)
+        .expect(200);
+      expect(retry.body.status).toBe('cancelled');
+
+      const claim = await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/pickup-claim`)
+        .expect(409);
+      expect(claim.body.error.code).toBe('NOT_CLAIMABLE');
+    });
+
+    it('B24: a paid order cannot be cancelled', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 1 }] })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/payments/demo/${order.body.orderId}`)
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/cancel`)
+        .expect(409);
+      expect(res.body.error.code).toBe('NOT_CANCELLABLE');
+      expect(res.body.error.details.status).toBe('paid');
+    });
+
+    it('B25: an expired hold cannot be cancelled', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 1 }] })
+        .expect(201);
+
+      await pool.query(
+        "UPDATE orders SET expires_at = clock_timestamp() - interval '1 second' WHERE id = $1",
+        [order.body.orderId],
+      );
+
+      const res = await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/cancel`)
+        .expect(409);
+      expect(res.body.error.code).toBe('NOT_CANCELLABLE');
+      expect(res.body.error.details.status).toBe('expired');
+    });
+
+    it('D22: demo checkout pays the server total and assigns a stable locker and pickup code', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 2 }] })
+        .expect(201);
+
+      const before = await request(app.getHttpServer())
+        .get(`/orders/${order.body.orderId}`)
+        .expect(200);
+      expect(before.body.status).toBe('pending');
+      expect(before.body.lockerNumber).toBeGreaterThanOrEqual(1);
+      expect(before.body.lockerNumber).toBeLessThanOrEqual(24);
+      expect(before.body.pickupCode).toMatch(/^\d{4}$/);
+
+      const payment = await request(app.getHttpServer())
+        .post(`/payments/demo/${order.body.orderId}`)
+        .expect(200);
+      expect(payment.body.outcome).toBe('paid');
+
+      const after = await request(app.getHttpServer())
+        .get(`/orders/${order.body.orderId}`)
+        .expect(200);
+      expect(after.body.status).toBe('paid');
+      expect(after.body.paidAt).toBeTruthy();
+      expect(after.body.lockerNumber).toBe(before.body.lockerNumber);
+      expect(after.body.pickupCode).toBe(before.body.pickupCode);
+
+      // Replaying the demo endpoint is harmless.
+      const replay = await request(app.getHttpServer())
+        .post(`/payments/demo/${order.body.orderId}`)
+        .expect(200);
+      expect(replay.body.outcome).toBe('ignored');
+    });
+
+    it('D23: a capture after cancellation is reviewable and refund-flagged, even with a wrong amount', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 2, quantity: 1 }] })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/cancel`)
+        .expect(200);
+
+      const payload = {
+        eventId: 'evt_after_cancel_wrong_amount',
+        orderId: order.body.orderId,
+        amountPaise: 1,
+        status: 'captured',
+      };
+      const raw = JSON.stringify(payload);
+      const res = await request(app.getHttpServer())
+        .post('/payments/webhook')
+        .set('x-signature', signPayload(raw, TEST_SECRET))
+        .send(payload)
+        .expect(200);
+
+      expect(res.body.outcome).toBe('needs_review');
+      const details = await request(app.getHttpServer())
+        .get(`/orders/${order.body.orderId}`)
+        .expect(200);
+      expect(details.body.status).toBe('needs_review');
+      expect(details.body.reviewReason).toBe('payment_after_cancel');
+      expect(details.body.refundFlag).toBe(true);
+    });
+
+    it('D24: negative webhook amounts are rejected before they are stored', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 1 }] })
+        .expect(201);
+
+      const payload = {
+        eventId: 'evt_negative',
+        orderId: order.body.orderId,
+        amountPaise: -1,
+        status: 'captured',
+      };
+      const raw = JSON.stringify(payload);
+      const res = await request(app.getHttpServer())
+        .post('/payments/webhook')
+        .set('x-signature', signPayload(raw, TEST_SECRET))
+        .send(payload)
+        .expect(400);
+
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      const events = await pool.query('SELECT COUNT(*)::int AS count FROM payment_events');
+      expect(events.rows[0].count).toBe(0);
+      const details = await request(app.getHttpServer())
+        .get(`/orders/${order.body.orderId}`)
+        .expect(200);
+      expect(details.body.status).toBe('pending');
     });
   });
 
@@ -694,6 +918,194 @@ describe('Pickup Counter Integration & Concurrency Tests', () => {
       const res = await request(app.getHttpServer()).get('/health').expect(200);
       expect(res.body.status).toBe('ok');
       expect(res.body.database).toBe('connected');
+    });
+  });
+
+  // -------------------------------------------------------------
+  // Customer Storefront Extensions: Cancellation, Shortage Breakdown,
+  // Demo Mode, Locker Code, Payment-After-Cancel
+  // -------------------------------------------------------------
+  describe('Customer Storefront Extensions', () => {
+    it('X1: POST /orders/:id/cancel cancels a pending order and restores available stock immediately', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 3, quantity: 2 }] })
+        .expect(201);
+
+      let prodRes = await request(app.getHttpServer()).get('/products').expect(200);
+      expect(prodRes.body.find((p: any) => p.id === 3).availableUnits).toBe(0);
+
+      const cancelRes = await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/cancel`)
+        .expect(200);
+
+      expect(cancelRes.body.status).toBe('cancelled');
+
+      const getRes = await request(app.getHttpServer())
+        .get(`/orders/${order.body.orderId}`)
+        .expect(200);
+      expect(getRes.body.status).toBe('cancelled');
+      expect(getRes.body.cancelledAt).toBeDefined();
+
+      prodRes = await request(app.getHttpServer()).get('/products').expect(200);
+      expect(prodRes.body.find((p: any) => p.id === 3).availableUnits).toBe(2);
+    });
+
+    it('X2: POST /orders/:id/cancel is idempotent on already-cancelled order', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 1 }] })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/cancel`)
+        .expect(200);
+
+      const secondCancel = await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/cancel`)
+        .expect(200);
+
+      expect(secondCancel.body.status).toBe('cancelled');
+    });
+
+    it('X3: POST /orders/:id/cancel rejects paid or picked_up order with 409 NOT_CANCELLABLE', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 1 }] })
+        .expect(201);
+
+      const payload = {
+        eventId: 'evt_cancel_paid_order',
+        orderId: order.body.orderId,
+        amountPaise: 35000,
+        status: 'captured',
+      };
+      await request(app.getHttpServer())
+        .post('/payments/webhook')
+        .set('x-signature', signPayload(JSON.stringify(payload), TEST_SECRET))
+        .send(payload)
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/cancel`)
+        .expect(409);
+
+      expect(res.body.error.code).toBe('NOT_CANCELLABLE');
+    });
+
+    it('X4: POST /orders returns 409 INSUFFICIENT_STOCK with item-level shortage details', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 3, quantity: 5 }] })
+        .expect(409);
+
+      expect(res.body.error.code).toBe('INSUFFICIENT_STOCK');
+      expect(res.body.error.details).toBeDefined();
+      expect(Array.isArray(res.body.error.details.shortages)).toBe(true);
+      expect(res.body.error.details.shortages[0]).toEqual({
+        productId: 3,
+        name: 'Handmade Ceramic Mug',
+        requested: 5,
+        available: 2,
+      });
+    });
+
+    it('X5: POST /orders validates maximum quantity per item and line limits', async () => {
+      const resExcessQty = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 100 }] })
+        .expect(400);
+
+      expect(resExcessQty.body.error.code).toBe('VALIDATION_ERROR');
+
+      const resZeroQty = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 0 }] })
+        .expect(400);
+
+      expect(resZeroQty.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('X6: Order creation assigns server-generated locker number and 4-digit pickup code', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 1 }] })
+        .expect(201);
+
+      const getRes = await request(app.getHttpServer())
+        .get(`/orders/${order.body.orderId}`)
+        .expect(200);
+
+      expect(getRes.body.lockerNumber).toBeGreaterThanOrEqual(1);
+      expect(getRes.body.lockerNumber).toBeLessThanOrEqual(24);
+      expect(typeof getRes.body.pickupCode).toBe('string');
+      expect(getRes.body.pickupCode).toMatch(/^\d{4}$/);
+    });
+
+    it('X7: POST /payments/demo/:orderId marks pending order as paid with server-calculated amount', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 2 }] })
+        .expect(201);
+
+      const demoRes = await request(app.getHttpServer())
+        .post(`/payments/demo/${order.body.orderId}`)
+        .expect(200);
+
+      expect(demoRes.body.outcome).toBe('paid');
+
+      const getRes = await request(app.getHttpServer())
+        .get(`/orders/${order.body.orderId}`)
+        .expect(200);
+
+      expect(getRes.body.status).toBe('paid');
+      expect(getRes.body.paidAt).toBeDefined();
+
+      const eventRes = await pool.query('SELECT event_id, outcome FROM payment_events WHERE order_id = $1', [
+        order.body.orderId,
+      ]);
+      expect(eventRes.rows.length).toBe(1);
+      expect(eventRes.rows[0].event_id).toMatch(/^demo_/);
+      expect(eventRes.rows[0].outcome).toBe('paid');
+    });
+
+    it('X8: Payment arriving after cancellation marks order needs_review with refund_flag', async () => {
+      const order = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 1 }] })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`/orders/${order.body.orderId}/cancel`)
+        .expect(200);
+
+      const payload = {
+        eventId: 'evt_inflight_after_cancel',
+        orderId: order.body.orderId,
+        amountPaise: 35000,
+        status: 'captured',
+      };
+      const res = await request(app.getHttpServer())
+        .post('/payments/webhook')
+        .set('x-signature', signPayload(JSON.stringify(payload), TEST_SECRET))
+        .send(payload)
+        .expect(200);
+
+      expect(res.body.outcome).toBe('needs_review');
+
+      const getRes = await request(app.getHttpServer())
+        .get(`/orders/${order.body.orderId}`)
+        .expect(200);
+
+      expect(getRes.body.status).toBe('needs_review');
+      expect(getRes.body.reviewReason).toBe('payment_after_cancel');
+      expect(getRes.body.refundFlag).toBe(true);
+    });
+
+    it('X9: GET /health reports demoMode and holdSeconds', async () => {
+      const res = await request(app.getHttpServer()).get('/health').expect(200);
+      expect(res.body.demoMode).toBe(true);
+      expect(res.body.holdSeconds).toBe(2);
     });
   });
 });

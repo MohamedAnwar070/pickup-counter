@@ -1,9 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, HttpStatus } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../common/database/database.service';
 import { PaymentsRepo } from './payments.repo';
 import { InventoryRepo } from '../inventory/inventory.repo';
 import { NormalizedWebhookPayload } from './payments.schema';
 import { WebhookResponse, OrderStatus } from '@pickup-counter/shared';
+import { AppError } from '../../common/errors/app-error';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -82,7 +84,27 @@ export class PaymentsService {
         return { outcome: 'ignored' };
       }
 
-      // 4. Amount mismatch check
+      // 4. The customer released the hold but a payment was already in flight.
+      //    Never silently keep the money: flag it for a staff refund decision.
+      //    This is checked before the amount so any captured money on a
+      //    cancelled order is refunded, even when the amount is also wrong.
+      if (order.status === 'cancelled') {
+        this.logger.warn(
+          `Payment captured after orderId=${orderId} was cancelled. Marking needs_review with refund flag.`,
+        );
+        await client.query(
+          `UPDATE orders
+           SET status = 'needs_review',
+               review_reason = 'payment_after_cancel',
+               refund_flag = true
+           WHERE id = $1`,
+          [orderId],
+        );
+        await this.paymentsRepo.updateEventOutcome(client, eventId, 'needs_review');
+        return { outcome: 'needs_review' };
+      }
+
+      // 5. Amount mismatch check
       if (amountPaise !== order.total_paise) {
         this.logger.warn(
           `Amount mismatch for orderId=${orderId}: expected ${order.total_paise}, got ${amountPaise}. Marking needs_review.`,
@@ -97,7 +119,7 @@ export class PaymentsService {
         return { outcome: 'needs_review' };
       }
 
-      // 5. Valid payment within hold period
+      // 6. Valid payment within hold period
       if (order.status === 'pending' && !order.is_expired) {
         this.logger.log(`Valid in-time payment for orderId=${orderId}. Marking paid.`);
         await client.query(
@@ -110,7 +132,7 @@ export class PaymentsService {
         return { outcome: 'paid' };
       }
 
-      // 6. Late payment handling (order is expired, or pending but past expiry)
+      // 7. Late payment handling (order is expired, or pending but past expiry)
       this.logger.log(`Late payment arrived for orderId=${orderId}. Evaluating stock availability...`);
 
       // Retrieve items
@@ -169,5 +191,52 @@ export class PaymentsService {
         return { outcome: 'needs_review' };
       }
     });
+  }
+
+  /**
+   * Demo-only checkout. The browser supplies only an order id; the server reads
+   * the amount and runs it through the same payment state machine as a real
+   * webhook. Gated by DEMO_MODE and never available in production by default.
+   */
+  async handleDemoPayment(orderId: string): Promise<WebhookResponse> {
+    if (!UUID_REGEX.test(orderId)) {
+      throw new AppError(
+        'INVALID_UUID',
+        'Invalid order ID format. Must be a valid UUID.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const orderRes = await this.db.query<{ total_paise: number }>(
+      'SELECT total_paise FROM orders WHERE id = $1',
+      [orderId],
+    );
+
+    if (orderRes.rows.length === 0) {
+      throw new AppError(
+        'ORDER_NOT_FOUND',
+        `Order with ID ${orderId} was not found`,
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const amountPaise = orderRes.rows[0].total_paise;
+    const rawBody = {
+      demo: true,
+      eventId: `demo_${randomUUID()}`,
+      orderId,
+      amountPaise,
+      status: 'captured',
+    };
+
+    return this.handleWebhook(
+      {
+        eventId: rawBody.eventId,
+        orderId,
+        amountPaise,
+        status: 'captured',
+      },
+      rawBody,
+    );
   }
 }

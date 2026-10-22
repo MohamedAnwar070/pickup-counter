@@ -8,6 +8,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [react()],
   resolve: {
+    // npm workspaces hoist React to the repository root. Dedupe prevents the
+    // optimizer from resolving a second copy from frontend/node_modules.
+    dedupe: ['react', 'react-dom', 'react-router', 'react-router-dom'],
     alias: {
       '@pickup-counter/shared': path.resolve(__dirname, '../shared/src/index.ts'),
     },
@@ -27,6 +30,11 @@ export default defineConfig({
       '/orders': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        bypass: (req) => {
+          if (req.headers.accept?.includes('text/html') || (req.method === 'GET' && (req.url === '/orders' || req.url === '/orders/'))) {
+            return '/index.html';
+          }
+        },
       },
       '/payments': {
         target: 'http://localhost:3000',

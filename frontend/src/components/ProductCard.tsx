@@ -1,114 +1,106 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Product, formatRupees } from '@pickup-counter/shared';
+import { useShop } from '../state/ShopContext';
+import { ProductImage } from './ProductImage';
 
 interface ProductCardProps {
   product: Product;
-  onAddToCart: (product: Product) => void;
-  cartQuantity: number;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({
-  product,
-  onAddToCart,
-  cartQuantity,
-}) => {
-  const isOutOfStock = product.availableUnits <= 0;
-  const isMaxInCart = cartQuantity >= product.availableUnits;
+const categoryIcons: Record<string, string> = {
+  Bakery: '🥖',
+  'Cold Brew & Roasts': '☕',
+  'Studio Ceramics': '🏺',
+  'Mountain Pantry': '🍯',
+};
 
-  // Real product imagery mapping
-  const getProductImage = (name: string): { src: string; tag: string; description: string } => {
-    const n = name.toLowerCase();
-    if (n.includes('sourdough')) {
-      return {
-        src: '/products/sourdough.jpg',
-        tag: 'Baked Fresh at 6 AM',
-        description: 'Naturally fermented 36-hour dough with a crackling blistered crust.',
-      };
-    } else if (n.includes('brew')) {
-      return {
-        src: '/products/coldbrew.jpg',
-        tag: 'Steeped 20 Hours',
-        description: 'Single-origin Arabica cold water extraction with chocolate undertones.',
-      };
-    } else if (n.includes('mug')) {
-      return {
-        src: '/products/ceramic-mug.jpg',
-        tag: 'Studio Hand-thrown',
-        description: 'Earthy terracotta with a speckled ivory food-safe matte glaze.',
-      };
-    } else if (n.includes('honey')) {
-      return {
-        src: '/products/honey.jpg',
-        tag: '100% Raw & Wild',
-        description: 'Unprocessed high-altitude wildflower honey harvested from forest hives.',
-      };
-    } else if (n.includes('beans')) {
-      return {
-        src: '/products/coffee-beans.jpg',
-        tag: 'Medium-Dark Roast',
-        description: 'Estate-grown whole beans roasted weekly in small artisan batches.',
-      };
+export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
+  const { cart, addToCart, showToast } = useShop();
+  const cartQuantity = cart.find((line) => line.product.id === product.id)?.quantity ?? 0;
+  const isOutOfStock = product.availableUnits <= 0;
+  const isSoldOut = product.stock <= 0;
+  const isMaxInCart = cartQuantity >= product.availableUnits;
+  const heldByOthers = Math.max(0, product.stock - product.availableUnits);
+
+  const handleAdd = () => {
+    const result = addToCart(product);
+    if (result.added > 0) {
+      showToast(`${product.name} added to cart`);
+    } else if (result.capped) {
+      showToast(`Only ${product.availableUnits} available right now`, 'error');
+    } else {
+      showToast('This item is currently unavailable', 'error');
     }
-    return {
-      src: '/products/sourdough.jpg',
-      tag: 'Counter Special',
-      description: 'Artisanal provisions crafted with sustainable local ingredients.',
-    };
   };
 
-  const { src, tag, description } = getProductImage(product.name);
-
   return (
-    <div className={`product-card ${isOutOfStock ? 'is-out-of-stock' : ''}`}>
-      <div className="product-image-container">
-        <img
-          src={src}
-          alt={product.name}
-          className="product-photo"
-          loading="lazy"
-        />
-        <div className="product-overlay-gradient"></div>
-        <span className="product-curator-tag">{tag}</span>
+    <article className={`product-card ${isOutOfStock ? 'is-out-of-stock' : ''}`}>
+      <Link to={`/product/${product.id}`} className="product-image-link" aria-label={`View ${product.name}`}>
+        <div className="product-image-container">
+          <ProductImage product={product} className="product-photo" />
+          <div className="product-overlay-gradient"></div>
+          <span className="product-curator-tag">
+            {categoryIcons[product.category] ? `${categoryIcons[product.category]} ` : ''}
+            {product.category || 'Counter special'}
+          </span>
 
-        <div className="stock-badge-container">
-          {isOutOfStock ? (
-            <span className="badge badge-soldout">Unavailable / Held</span>
-          ) : product.availableUnits <= 2 ? (
-            <span className="badge badge-warning">Only {product.availableUnits} left</span>
-          ) : (
-            <span className="badge badge-instock">{product.availableUnits} Available</span>
-          )}
+          <div className="stock-badge-container">
+            {isOutOfStock ? (
+              <span className="badge badge-soldout">
+                {isSoldOut ? 'Sold out' : 'Fully held'}
+              </span>
+            ) : product.availableUnits <= 2 ? (
+              <span className="badge badge-warning">Only {product.availableUnits} left</span>
+            ) : (
+              <span className="badge badge-instock">{product.availableUnits} available</span>
+            )}
+          </div>
         </div>
-      </div>
+      </Link>
 
       <div className="product-details">
-        <h3 className="product-title">{product.name}</h3>
-        <p className="product-description-text">{description}</p>
+        <span className="product-tagline">{product.tagline || 'Small-batch counter goods'}</span>
+        <Link to={`/product/${product.id}`} className="product-title-link">
+          <h3 className="product-title">{product.name}</h3>
+        </Link>
+        <p className="product-description-text">{product.description || 'A MetroSober counter favourite.'}</p>
+
+        {heldByOthers > 0 && !isOutOfStock && (
+          <p className="held-note">
+            <span className="mini-dot"></span>
+            {heldByOthers} unit{heldByOthers === 1 ? '' : 's'} currently reserved by other shoppers
+          </p>
+        )}
 
         <div className="product-meta">
           <div className="price-stack">
             <span className="product-price">{formatRupees(product.pricePaise)}</span>
-            <span className="product-stock-subtext">Batch Stock: {product.stock}</span>
+            <span className="product-stock-subtext">Batch stock: {product.stock}</span>
           </div>
 
           <button
             className={`btn ${isOutOfStock ? 'btn-disabled' : 'btn-primary'}`}
             disabled={isOutOfStock || isMaxInCart}
-            onClick={() => onAddToCart(product)}
+            onClick={handleAdd}
             aria-label={`Add ${product.name} to cart`}
           >
             {isOutOfStock ? (
-              'Sold Out'
+              isSoldOut ? (
+                'Sold out'
+              ) : (
+                'Fully held'
+              )
             ) : isMaxInCart ? (
-              'Max in Cart'
+              'Max in cart'
             ) : cartQuantity > 0 ? (
-              `Add (+${cartQuantity})`
+              `Add another (${cartQuantity})`
             ) : (
-              'Add to Cart'
+              'Add to cart'
             )}
           </button>
         </div>
       </div>
-    </div>
+    </article>
   );
 };

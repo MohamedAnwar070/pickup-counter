@@ -5,7 +5,7 @@ module.exports = {
   transform: {
     '^.+\\.ts$': 'ts-jest',
   },
-  setupFiles: ['dotenv/config'],
+  setupFiles: ['<rootDir>/test/setup-env.ts'],
   collectCoverageFrom: ['**/*.(t|j)s'],
   coverageDirectory: '../coverage',
   testEnvironment: 'node',

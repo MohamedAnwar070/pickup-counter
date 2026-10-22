@@ -1,35 +1,60 @@
 import {
-  Product,
+  CancelOrderResponse,
   CreateOrderRequest,
   CreateOrderResponse,
   GetOrderResponse,
+  HealthResponse,
   PickupClaimResponse,
-  WebhookPayload,
+  Product,
+  StockShortage,
   WebhookResponse,
 } from '@pickup-counter/shared';
 
 const BASE_URL = '';
 
+export class ApiError extends Error {
+  code: string;
+  status: number;
+  details?: { shortages?: StockShortage[] } & Record<string, unknown>;
+
+  constructor(
+    message: string,
+    code: string,
+    status: number,
+    details?: { shortages?: StockShortage[] } & Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+    this.details = details;
+  }
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const errorMsg = data.error?.message || data.message || `Request failed with status ${res.status}`;
+    const errorMsg =
+      data.error?.message || data.message || `Request failed with status ${res.status}`;
     const code = data.error?.code || 'REQUEST_FAILED';
-    const err = new Error(errorMsg) as Error & { code?: string; details?: unknown; status?: number };
-    err.code = code;
-    err.details = data.error?.details;
-    err.status = res.status;
-    throw err;
+    throw new ApiError(errorMsg, code, res.status, data.error?.details);
   }
   return data as T;
 }
 
 export async function fetchProducts(): Promise<Product[]> {
-  const res = await fetch(`${BASE_URL}/products`);
+  const res = await fetch(`${BASE_URL}/products`, { headers: { Accept: 'application/json' } });
   return handleResponse<Product[]>(res);
 }
 
-export async function createOrder(items: Array<{ productId: number; quantity: number }>): Promise<CreateOrderResponse> {
+export async function fetchHealth(): Promise<HealthResponse> {
+  const res = await fetch(`${BASE_URL}/health`);
+  return handleResponse<HealthResponse>(res);
+}
+
+export async function createOrder(
+  items: Array<{ productId: number; quantity: number }>,
+): Promise<CreateOrderResponse> {
   const req: CreateOrderRequest = { items };
   const res = await fetch(`${BASE_URL}/orders`, {
     method: 'POST',
@@ -44,6 +69,11 @@ export async function fetchOrder(id: string): Promise<GetOrderResponse> {
   return handleResponse<GetOrderResponse>(res);
 }
 
+export async function cancelOrder(id: string): Promise<CancelOrderResponse> {
+  const res = await fetch(`${BASE_URL}/orders/${id}/cancel`, { method: 'POST' });
+  return handleResponse<CancelOrderResponse>(res);
+}
+
 export async function claimPickup(orderId: string): Promise<PickupClaimResponse> {
   const res = await fetch(`${BASE_URL}/orders/${orderId}/pickup-claim`, {
     method: 'POST',
@@ -52,42 +82,12 @@ export async function claimPickup(orderId: string): Promise<PickupClaimResponse>
 }
 
 /**
- * Calculates hex HMAC-SHA256 signature using browser standard Web Crypto API
+ * Demo-only payment. The server reads the amount and runs the same payment
+ * state machine as the signed webhook. No secret ever reaches the browser.
  */
-export async function computeHmacSignature(rawBody: string, secret: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await window.crypto.subtle.importKey(
-    'raw',
-    enc.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const signatureBuffer = await window.crypto.subtle.sign('HMAC', key, enc.encode(rawBody));
-  const hashArray = Array.from(new Uint8Array(signatureBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-export async function simulateWebhook(
-  payload: WebhookPayload,
-  secret: string = 'pickup-secret-key-12345',
-  badSig: boolean = false,
-): Promise<WebhookResponse> {
-  const rawBody = JSON.stringify(payload);
-  let signature = await computeHmacSignature(rawBody, secret);
-
-  if (badSig) {
-    signature = signature.replace(/[0-9a-f]/, (c) => (c === 'a' ? 'b' : 'a'));
-  }
-
-  const res = await fetch(`${BASE_URL}/payments/webhook`, {
+export async function payDemo(orderId: string): Promise<WebhookResponse> {
+  const res = await fetch(`${BASE_URL}/payments/demo/${orderId}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-signature': signature,
-    },
-    body: rawBody,
   });
-
   return handleResponse<WebhookResponse>(res);
 }

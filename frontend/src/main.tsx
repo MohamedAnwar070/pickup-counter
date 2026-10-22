@@ -1,7 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
+import { OrdersProvider } from './state/OrdersContext';
+import { ShopProvider } from './state/ShopContext';
 import './index.css';
+import './app.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -10,6 +14,12 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    <BrowserRouter>
+      <OrdersProvider>
+        <ShopProvider>
+          <App />
+        </ShopProvider>
+      </OrdersProvider>
+    </BrowserRouter>
   </React.StrictMode>,
 );

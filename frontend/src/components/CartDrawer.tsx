@@ -1,141 +1,166 @@
-import React from 'react';
-import { Product, formatRupees } from '@pickup-counter/shared';
+import React, { useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { formatRupees } from '@pickup-counter/shared';
+import { useShop } from '../state/ShopContext';
+import { ProductImage } from './ProductImage';
+import { formatHoldDuration } from '../utils/hold';
 
-export interface CartItem {
-  product: Product;
-  quantity: number;
-}
+export const CartDrawer: React.FC = () => {
+  const {
+    isCartOpen,
+    closeCart,
+    cart,
+    cartCount,
+    cartTotalPaise,
+    setQuantity,
+    removeFromCart,
+    holdSeconds,
+  } = useShop();
+  const navigate = useNavigate();
 
-interface CartDrawerProps {
-  isOpen: boolean;
-  onClose: () => void;
-  items: CartItem[];
-  onUpdateQuantity: (productId: number, delta: number) => void;
-  onRemoveItem: (productId: number) => void;
-  onCheckout: () => void;
-  isSubmitting: boolean;
-  errorMessage?: string | null;
-}
+  useEffect(() => {
+    if (!isCartOpen) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeCart();
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [isCartOpen, closeCart]);
 
-export const CartDrawer: React.FC<CartDrawerProps> = ({
-  isOpen,
-  onClose,
-  items,
-  onUpdateQuantity,
-  onRemoveItem,
-  onCheckout,
-  isSubmitting,
-  errorMessage,
-}) => {
-  if (!isOpen) return null;
+  if (!isCartOpen) return null;
 
-  const totalPaise = items.reduce(
-    (sum, item) => sum + item.product.pricePaise * item.quantity,
-    0,
-  );
+  const goToCheckout = () => {
+    closeCart();
+    navigate('/checkout');
+  };
 
   return (
-    <div className="drawer-overlay" onClick={onClose}>
-      <div className="drawer-panel" onClick={(e) => e.stopPropagation()}>
+    <div className="drawer-overlay" onClick={closeCart}>
+      <aside
+        className="drawer-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cart-title"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="drawer-header">
           <div className="drawer-title-wrap">
-            <h2 className="drawer-title">Your Order Cart</h2>
+            <h2 className="drawer-title" id="cart-title">
+              Your basket
+            </h2>
             <span className="drawer-subtitle">
-              {items.length} {items.length === 1 ? 'item' : 'items'}
+              {cartCount} {cartCount === 1 ? 'item' : 'items'} · no stock held yet
             </span>
           </div>
-          <button className="btn-close" onClick={onClose} aria-label="Close cart">
+          <button className="btn-close" onClick={closeCart} aria-label="Close cart">
             ✕
           </button>
         </div>
 
-        {errorMessage && (
-          <div className="alert alert-error" role="alert">
-            <div className="alert-icon">⚠️</div>
-            <div className="alert-content">
-              <strong>Stock Error</strong>
-              <p>{errorMessage}</p>
-            </div>
-          </div>
-        )}
-
         <div className="drawer-body">
-          {items.length === 0 ? (
+          {cart.length === 0 ? (
             <div className="empty-cart-state">
               <div className="empty-icon">🛒</div>
-              <h3>Your cart is empty</h3>
-              <p>Browse our counter selection and add items to begin.</p>
-              <button className="btn btn-secondary" onClick={onClose}>
-                Browse Products
-              </button>
+              <h3>Your basket is empty</h3>
+              <p>Browse the counter selection and add something small-batch.</p>
+              <Link className="btn btn-secondary" to="/" onClick={closeCart}>
+                Browse products
+              </Link>
             </div>
           ) : (
             <ul className="cart-item-list">
-              {items.map((item) => (
-                <li key={item.product.id} className="cart-item">
-                  <div className="cart-item-info">
-                    <h4 className="cart-item-name">{item.product.name}</h4>
-                    <span className="cart-item-unit-price">
-                      {formatRupees(item.product.pricePaise)} each
-                    </span>
-                    <span className="cart-item-subtotal">
-                      Subtotal: {formatRupees(item.product.pricePaise * item.quantity)}
-                    </span>
-                  </div>
+              {cart.map((line) => {
+                const atLimit = line.quantity >= line.product.availableUnits;
+                return (
+                  <li key={line.product.id} className="cart-item cart-item-rich">
+                    <Link
+                      to={`/product/${line.product.id}`}
+                      className="cart-thumb-wrap"
+                      onClick={closeCart}
+                    >
+                      <ProductImage product={line.product} className="cart-thumb" />
+                    </Link>
 
-                  <div className="cart-item-actions">
-                    <div className="quantity-stepper">
-                      <button
-                        className="stepper-btn"
-                        onClick={() => onUpdateQuantity(item.product.id, -1)}
-                        aria-label="Decrease quantity"
+                    <div className="cart-item-info">
+                      <Link
+                        to={`/product/${line.product.id}`}
+                        className="cart-item-name-link"
+                        onClick={closeCart}
                       >
-                        -
-                      </button>
-                      <span className="stepper-value">{item.quantity}</span>
-                      <button
-                        className="stepper-btn"
-                        onClick={() => onUpdateQuantity(item.product.id, 1)}
-                        disabled={item.quantity >= item.product.availableUnits}
-                        aria-label="Increase quantity"
-                      >
-                        +
-                      </button>
+                        <h4 className="cart-item-name">{line.product.name}</h4>
+                      </Link>
+                      <span className="cart-item-unit-price">
+                        {formatRupees(line.product.pricePaise)} each
+                      </span>
+                      <span className="cart-item-subtotal">
+                        {formatRupees(line.product.pricePaise * line.quantity)}
+                      </span>
+                      {atLimit && (
+                        <span className="cart-limit-note">
+                          Max available quantity in your basket
+                        </span>
+                      )}
                     </div>
 
-                    <button
-                      className="btn-remove"
-                      onClick={() => onRemoveItem(item.product.id)}
-                      title="Remove item"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </li>
-              ))}
+                    <div className="cart-item-actions">
+                      <div className="quantity-stepper">
+                        <button
+                          className="stepper-btn"
+                          onClick={() => setQuantity(line.product.id, line.quantity - 1)}
+                          aria-label={`Decrease ${line.product.name} quantity`}
+                        >
+                          −
+                        </button>
+                        <span className="stepper-value">{line.quantity}</span>
+                        <button
+                          className="stepper-btn"
+                          onClick={() => setQuantity(line.product.id, line.quantity + 1)}
+                          disabled={atLimit}
+                          aria-label={`Increase ${line.product.name} quantity`}
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      <button
+                        className="btn-remove"
+                        onClick={() => removeFromCart(line.product.id)}
+                        title="Remove item"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
 
-        {items.length > 0 && (
+        {cart.length > 0 && (
           <div className="drawer-footer">
             <div className="order-summary-row">
-              <span>Order Total</span>
-              <span className="order-total-price">{formatRupees(totalPaise)}</span>
+              <span>Subtotal</span>
+              <span className="order-total-price">{formatRupees(cartTotalPaise)}</span>
             </div>
             <p className="hold-policy-notice">
-              🔒 Stock is reserved for <strong>120 seconds</strong> once order is placed.
+              Stock is reserved only after you continue to checkout. The reservation starts
+              when you place the order and lasts for a {formatHoldDuration(holdSeconds)} window.
             </p>
-            <button
-              className="btn btn-primary btn-checkout"
-              onClick={onCheckout}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Reserving Stock...' : 'Place Order & Hold Stock'}
+            <button className="btn btn-primary btn-checkout" onClick={goToCheckout}>
+              Continue to checkout
             </button>
+            <p className="cart-continue-note">
+              or <button onClick={closeCart}>keep browsing the counter</button>
+            </p>
           </div>
         )}
-      </div>
+      </aside>
     </div>
   );
 };
