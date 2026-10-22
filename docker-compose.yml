@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: pickup-counter-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: pickup
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pickup"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: pickup-counter-api
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://postgres:postgrespassword@db:5432/pickup
+      WEBHOOK_SECRET: pickup-secret-key-12345
+      HOLD_SECONDS: 120
+    ports:
+      - "3000:3000"
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: pickup-counter-web
+    restart: always
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+
+volumes:
+  db_data:
