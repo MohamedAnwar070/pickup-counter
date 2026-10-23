@@ -62,6 +62,26 @@ Snapshots:   0 total
 Time:        ~43 s
 ```
 
+### Verifying the Hard Cases Individually
+
+Each hard requirement has its own test against real PostgreSQL. You can run the signature concurrency test with a single command:
+
+```bash
+# Run the 10-buyers-for-2-units concurrency test (B17)
+npm run test:concurrency
+```
+
+Or run any specific scenario against the backend test suite:
+
+| Scenario | Command | What it proves |
+|---|---|---|
+| 10 buyers race for the last 2 units | `npm run test:concurrency` | Exactly 2 × 201, 8 × 409 `INSUFFICIENT_STOCK`, availability never below 0 |
+| Same webhook delivered twice at once | `npm --prefix backend run test -- -- -t "D3:"` | One `payment_events` row; the other request returns `{ duplicate: true }` |
+| Two locker claims at once | `npm --prefix backend run test -- -- -t "E9:"` | One 200, one 409; stock decremented exactly once |
+| Payment crossing the 120 s boundary | `npm --prefix backend run test -- -- -t "D25:"` | An in-time payment that commits late is re-judged as late, never oversold |
+| Hold expiry releases stock | `npm --prefix backend run test -- -- -t "C1:"` | Units return to the shelf the moment the hold ends (no sweeper needed) |
+| Device clock 10 min wrong | `npm --prefix backend run test -- -- -t "H1:"` | Countdown uses `performance.now()` + server `expiresInSeconds`, not the wall clock |
+
 ### Sending Signed Webhooks (CLI)
 
 Use the built-in CLI helper to trigger HMAC-SHA256 signed payment events. The payment screen in the web app shows the exact command for the current order, ready to copy. If `--amount` is omitted, the script reads the order's server-computed total from `GET /orders/:id`.
