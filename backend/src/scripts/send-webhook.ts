@@ -26,6 +26,30 @@ function parseArgs(): Record<string, string | boolean> {
   return result;
 }
 
+/** Reads the order's server-computed total so the default webhook is a valid payment. */
+function fetchOrderTotal(orderUrl: string): Promise<number> {
+  const clientLib = new URL(orderUrl).protocol === 'https:' ? https : http;
+  return new Promise((resolve, reject) => {
+    clientLib
+      .get(orderUrl, (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            reject(new Error(`GET ${orderUrl} returned ${res.statusCode}: ${data}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(data).totalPaise);
+          } catch {
+            reject(new Error(`GET ${orderUrl} returned invalid JSON: ${data}`));
+          }
+        });
+      })
+      .on('error', reject);
+  });
+}
+
 async function main() {
   const flags = parseArgs();
 
@@ -38,7 +62,7 @@ Usage:
 
 Options:
   --orderId <uuid>     The order UUID to pay
-  --amount <paise>     Amount in paise (e.g. 35000 for ₹350.00)
+  --amount <paise>     Amount in paise (default: the order's total, fetched from the API)
   --eventId <string>   Custom event ID (default: random)
   --status <status>    Event status (default: 'captured')
   --bad-sig            Deliberately send an invalid HMAC signature
@@ -48,11 +72,28 @@ Options:
     process.exit(1);
   }
 
-  const amountPaise = flags.amount ? parseInt(flags.amount as string, 10) : 1000;
   const status = (flags.status as string) || 'captured';
   const eventId = (flags.eventId as string) || (flags['event-id'] as string) || `evt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
   const secret = (flags.secret as string) || process.env.WEBHOOK_SECRET || 'pickup-secret-key-12345';
   const targetUrl = (flags.url as string) || 'http://localhost:3000/payments/webhook';
+
+  let amountPaise: number;
+  if (typeof flags.amount === 'string') {
+    if (!/^-?\d+$/.test(flags.amount)) {
+      console.error(`❌ Error: --amount must be an integer number of paise, got "${flags.amount}".`);
+      process.exit(1);
+    }
+    amountPaise = parseInt(flags.amount, 10);
+  } else {
+    const orderUrl = new URL(`/orders/${encodeURIComponent(orderId)}`, targetUrl).toString();
+    try {
+      amountPaise = await fetchOrderTotal(orderUrl);
+    } catch (err) {
+      console.error(`❌ Error: could not read the order total (${(err as Error).message}). Pass --amount <paise> explicitly.`);
+      process.exit(1);
+    }
+    console.log(`ℹ️ --amount not given: using the order total from the API (${amountPaise} paise).`);
+  }
   const isBadSig = Boolean(flags['bad-sig'] || flags.badSig);
 
   const payload = {

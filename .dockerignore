@@ -1,0 +1,12 @@
+# Host dependencies and build output must never enter the image: native
+# binaries (e.g. rolldown's) are OS-specific and would overwrite the Linux
+# node_modules installed inside the container.
+**/node_modules
+**/dist
+**/coverage
+**/package-lock.json
+package-lock.json
+.git
+.env
+**/.env
+*.log

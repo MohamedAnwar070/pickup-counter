@@ -455,12 +455,11 @@ export const OrderPage: React.FC = () => {
 
                 {paymentError && <div className="alert alert-error">{paymentError}</div>}
 
-                {health?.demoMode === false && (
-                  <div className="webhook-helper">
-                    <strong>Reviewer payment command</strong>
-                    <code>{webhookCommand}</code>
-                  </div>
-                )}
+                <div className="webhook-helper">
+                  <strong>Reviewer payment command</strong>
+                  <span>Run from the repo root to send a correctly signed webhook:</span>
+                  <code>{webhookCommand}</code>
+                </div>
 
                 <div className="payment-footer-note">
                   <span>🔒</span>

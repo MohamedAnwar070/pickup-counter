@@ -16,7 +16,7 @@
     "test": "npm --workspace=backend run test",
     "test:watch": "npm --workspace=backend run test:watch",
     "test:cov": "npm --workspace=backend run test:cov",
-    "send-webhook": "npm --workspace=backend run send-webhook",
+    "send-webhook": "npm --workspace=backend run send-webhook --",
     "migrate": "npm --workspace=backend run migrate",
     "seed": "npm --workspace=backend run seed",
     "lint": "npm run lint --workspaces --if-present"

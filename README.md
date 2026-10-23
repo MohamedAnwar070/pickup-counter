@@ -37,8 +37,13 @@ docker compose up --build
 
 ### Running Tests & Quality Checks
 
+Tests run against a real PostgreSQL on `localhost:5432` (user `postgres`, password `postgres`), the same credentials used by `docker-compose.yml`. The `pickup_test` database is created and migrated automatically on the first run.
+
 ```bash
-# 1. Run all 78 unit, integration, and concurrency tests (0 mocks, real PostgreSQL):
+# 0. Start only the database (skip if PostgreSQL 16 is already running locally)
+docker compose up -d db
+
+# 1. Run all 73 unit, integration, and concurrency tests (0 mocks, real PostgreSQL):
 npm test
 
 # 2. Run ESLint code quality checks:
@@ -52,18 +57,18 @@ PASS src/test/integration.spec.ts
 PASS src/common/unit.spec.ts
 
 Test Suites: 3 passed, 3 total
-Tests:       78 passed, 78 total
+Tests:       73 passed, 73 total
 Snapshots:   0 total
-Time:        20.61 s
+Time:        ~43 s
 ```
 
 ### Sending Signed Webhooks (CLI)
 
-Use the built-in CLI helper to trigger HMAC-SHA256 signed payment events:
+Use the built-in CLI helper to trigger HMAC-SHA256 signed payment events. The payment screen in the web app shows the exact command for the current order, ready to copy. If `--amount` is omitted, the script reads the order's server-computed total from `GET /orders/:id`.
 
 ```bash
-# 1. Valid payment for an order
-npm run send-webhook -- --orderId <UUID> --amount <PAISE>
+# 1. Valid payment for an order (amount fetched from the API)
+npm run send-webhook -- --orderId <UUID>
 
 # 2. Amount mismatch (triggers needs_review)
 npm run send-webhook -- --orderId <UUID> --amount 1000
@@ -175,6 +180,7 @@ The prompt specifies that inventory is physically deducted only upon locker pick
 | **Clock reference** | Database clock (`clock_timestamp()`) | Counter device clocks may drift or be intentionally desynchronized. |
 | **Idempotency** | `payment_events.event_id` PRIMARY KEY | Enforced by PostgreSQL constraint; atomic duplicate detection via `ON CONFLICT DO NOTHING RETURNING`. |
 | **Late payment** | If stock is still available: accept as `paid` (outcome `paid_late`). If stock is depleted: `needs_review` with `refund_flag = true`. | Respects customer payment when fair without ever overselling inventory. |
+| **Payment at the 120s boundary** | The webhook locks the order's product rows (same ascending order as `createOrder`) *before* reading the clock to decide in-time vs late. | A payment decided at 119.9 s but committed after 120 s can never overlap with a new order for the same units; a boundary-crossing payment goes through the late-payment stock check. |
 | **Amount mismatch** | `needs_review`, hold released | Never mark order as paid on mismatched amount. |
 | **Unknown order in webhook** | Record event, return 200 `{ outcome: 'ignored' }`, do nothing | Prevents external payment webhook providers from retrying indefinitely. |
 | **Webhook key casing** | Accepts both `eventId`/`orderId`/`amountPaise` and `event_id`/`order_id`/`amount_paise` | Robust against differences in webhook provider serialization styles. |
@@ -202,27 +208,24 @@ The prompt specifies that inventory is physically deducted only upon locker pick
 
 ## 7. How Correctness Was Checked
 
-78 automated tests execute across 3 test suites against an active PostgreSQL test instance (`pickup_test`), verifying:
+73 automated tests execute across 3 test suites against an active PostgreSQL test instance (`pickup_test`), verifying:
 
 1. **R1 Catalog & Stock (A1–A6):** Accurate available units calculation; stock reductions reflected in real time.
-2. **R2 Order Placement & Concurrency (B1–B16):** Duplicate product merging, server-side price computation, insufficient stock rollback, 404s, and 400s.
+2. **R2 Order Placement (B1–B8, B21, B22, B26, B27):** Duplicate product merging, server-side price computation, all-or-nothing rollback with itemised `details.shortages`, quantity limits, 404s, and 400s.
 3. **R10 Concurrency Race (B17):** 10 simultaneous orders competing for the last 2 units. Exactly 2 succeed (201), 8 fail with 409 `INSUFFICIENT_STOCK`, available units clamp to 0, and exactly 2 orders exist in the database.
 4. **R3 Expiry & Sweeper (C1–C5):** Expire-on-read unlocks units immediately after 120s elapses; sweeper automatically updates status.
 5. **R4 Signature Verification (D5–D13):** Rejects missing header, wrong secrets, tampered JSON body, and non-hex inputs with 401 `INVALID_SIGNATURE`.
 6. **R5 Webhook Idempotency (D2, D3, D4, D21):** Serial and concurrent delivery of identical `eventId`s. Exactly 1 row inserted, second request returns `{ duplicate: true }`, order state unmodified.
 7. **R6 Amount Mismatch & Capture (D1, D14–D17):** Amount differences route to `needs_review` and release stock; non-captured events ignored.
-8. **R7 Late Payment (D18–D20):** Payment after expiry succeeds if shelf has stock; routes to `needs_review` with `refund_flag` if stock was taken.
+8. **R7 Late Payment (D18, D19, D25):** Payment after expiry succeeds if shelf has stock; routes to `needs_review` with `refund_flag` if stock was taken. `D25` holds a rival product lock across the 120s boundary to prove an in-time webhook that commits late is re-judged as late instead of overselling.
 9. **R8 Pickup Claim Concurrency (E1–E11, E9):** Atomic update ensures only one locker claim wins (200), simultaneous claim returns 409 `ALREADY_CLAIMED`, stock decremented exactly once.
-10. **Storefront & Concurrency Extensions (X1–X9):**
-    - `X1`: `POST /orders/:id/cancel` immediately releases held stock and restores `availableUnits`.
-    - `X2`: `POST /orders/:id/cancel` is idempotent on already-cancelled holds.
-    - `X3`: Cancellation rejected with 409 `NOT_CANCELLABLE` if already paid or collected.
-    - `X4`: `POST /orders` returns 409 with itemized `details.shortages` array for basket reconciliation.
-    - `X5`: Line item quantity (max 99) and order lines (max 20) strictly validated.
-    - `X6`: Server-generated locker bay (1–24 sequence) and 4-digit pickup code assigned.
-    - `X7`: Demo payment endpoint safely transitions order to `paid` using DB-authoritative amount.
-    - `X8`: Payment captured after customer cancellation flags `needs_review` with `payment_after_cancel` and `refund_flag=true`.
-    - `X9`: `GET /health` reports `demoMode` and `holdSeconds` runtime flags.
+10. **R9 Cancellation & Demo Checkout (B23–B25, D22–D24):**
+    - `B23`: `POST /orders/:id/cancel` releases held stock immediately, is idempotent, and blocks pickup.
+    - `B24` / `B25`: Paid or expired orders are rejected with 409 `NOT_CANCELLABLE`.
+    - `D22`: Demo checkout pays the DB-authoritative total through the same webhook state machine (one `demo_` event row) and keeps a stable locker bay and 4-digit pickup code.
+    - `D23`: A capture after cancellation becomes `needs_review` with `payment_after_cancel` and `refund_flag=true`, even with a wrong amount.
+    - `D24`: Negative webhook amounts are rejected with 400 before anything is stored.
+    - `GET /health` reports `demoMode` and `holdSeconds` runtime flags.
 11. **Unit Logic (G1–G7):** Table-driven tests for webhook decisions, timing-safe HMAC verification, monotonic clock arithmetic, and currency conversion.
 12. **Frontend Robustness (H1–H3):** Device clock shifted 10 minutes ahead has 0% impact on countdown; monotonic timer handles server re-sync without client-side state drift.
 

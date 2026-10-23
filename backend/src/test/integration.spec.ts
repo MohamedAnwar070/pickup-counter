@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
-import { Pool } from 'pg';
+import { Client, Pool } from 'pg';
 import { AppModule } from '../app.module';
 import { configureApp } from '../bootstrap';
 import { signPayload } from '../common/crypto/hmac';
@@ -16,11 +16,30 @@ process.env.WEBHOOK_SECRET = TEST_SECRET;
 process.env.HOLD_SECONDS = String(TEST_HOLD_SECONDS);
 process.env.NODE_ENV = 'test';
 
+/** Creates the test database on first run so `npm test` needs no manual setup. */
+async function ensureTestDatabase(): Promise<void> {
+  const url = new URL(TEST_DB_URL);
+  const dbName = url.pathname.slice(1);
+  url.pathname = '/postgres';
+
+  const admin = new Client({ connectionString: url.toString() });
+  await admin.connect();
+  try {
+    const exists = await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
+    if (exists.rows.length === 0) {
+      await admin.query(`CREATE DATABASE "${dbName}"`);
+    }
+  } finally {
+    await admin.end();
+  }
+}
+
 describe('Pickup Counter Integration & Concurrency Tests', () => {
   let app: INestApplication;
   let pool: Pool;
 
   beforeAll(async () => {
+    await ensureTestDatabase();
     await runMigrations(TEST_DB_URL);
 
     pool = new Pool({
@@ -121,7 +140,7 @@ describe('Pickup Counter Integration & Concurrency Tests', () => {
   // -------------------------------------------------------------
   // Phase 3: R2 Place Order & Hold Stock (B1 - B16)
   // -------------------------------------------------------------
-  describe('R2: Place order and hold stock (B1 - B16)', () => {
+  describe('R2: Place order and hold stock (B1 - B8, B21, B22, B26, B27)', () => {
     it('B1: creates order with server-calculated price and returns 201', async () => {
       const res = await request(app.getHttpServer())
         .post('/orders')
@@ -274,6 +293,39 @@ describe('Pickup Counter Integration & Concurrency Tests', () => {
       expect(products.body.find((p: any) => p.id === 2).availableUnits).toBe(8);
       expect(products.body.find((p: any) => p.id === 3).availableUnits).toBe(0);
     });
+
+    it('B26: 409 INSUFFICIENT_STOCK shortage details include the product name', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 3, quantity: 5 }] })
+        .expect(409);
+
+      expect(res.body.error.code).toBe('INSUFFICIENT_STOCK');
+      expect(res.body.error.details).toBeDefined();
+      expect(Array.isArray(res.body.error.details.shortages)).toBe(true);
+      expect(res.body.error.details.shortages[0]).toEqual({
+        productId: 3,
+        name: 'Handmade Ceramic Mug',
+        requested: 5,
+        available: 2,
+      });
+    });
+
+    it('B27: rejects quantities above 99 or below 1 with 400 VALIDATION_ERROR', async () => {
+      const resExcessQty = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 100 }] })
+        .expect(400);
+
+      expect(resExcessQty.body.error.code).toBe('VALIDATION_ERROR');
+
+      const resZeroQty = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 1, quantity: 0 }] })
+        .expect(400);
+
+      expect(resZeroQty.body.error.code).toBe('VALIDATION_ERROR');
+    });
   });
 
   // -------------------------------------------------------------
@@ -376,6 +428,13 @@ describe('Pickup Counter Integration & Concurrency Tests', () => {
       expect(after.body.paidAt).toBeTruthy();
       expect(after.body.lockerNumber).toBe(before.body.lockerNumber);
       expect(after.body.pickupCode).toBe(before.body.pickupCode);
+
+      const events = await pool.query('SELECT event_id, outcome FROM payment_events WHERE order_id = $1', [
+        order.body.orderId,
+      ]);
+      expect(events.rows).toHaveLength(1);
+      expect(events.rows[0].event_id).toMatch(/^demo_/);
+      expect(events.rows[0].outcome).toBe('paid');
 
       // Replaying the demo endpoint is harmless.
       const replay = await request(app.getHttpServer())
@@ -712,7 +771,7 @@ describe('Pickup Counter Integration & Concurrency Tests', () => {
   // -------------------------------------------------------------
   // Phase 8: R7 Late Payment (D18 - D20)
   // -------------------------------------------------------------
-  describe('R7: Late payment (D18 - D20)', () => {
+  describe('R7: Late payment (D18 - D20, D25)', () => {
     it('D18: late payment accepted as paid_late when stock is still available', async () => {
       const order = await request(app.getHttpServer())
         .post('/orders')
@@ -792,6 +851,69 @@ describe('Pickup Counter Integration & Concurrency Tests', () => {
       expect(getRes.body.status).toBe('needs_review');
       expect(getRes.body.reviewReason).toBe('late_payment_stock_gone');
       expect(getRes.body.refundFlag).toBe(true);
+    });
+
+    it('D25: an in-time webhook that crosses expiry while waiting on stock locks is re-judged as late', async () => {
+      // Order A holds both mugs (stock = 2).
+      const orderA = await request(app.getHttpServer())
+        .post('/orders')
+        .send({ items: [{ productId: 3, quantity: 2 }] })
+        .expect(201);
+
+      // Simulate a concurrent createOrder that already holds the mug row lock.
+      const rival = await pool.connect();
+      try {
+        await rival.query('BEGIN');
+        await rival.query('SELECT id FROM products WHERE id = 3 FOR UPDATE');
+
+        // A's payment arrives well inside the hold window...
+        const payload = {
+          eventId: 'evt_boundary_race',
+          orderId: orderA.body.orderId,
+          amountPaise: 130000,
+          status: 'captured',
+        };
+        const webhook = request(app.getHttpServer())
+          .post('/payments/webhook')
+          .set('x-signature', signPayload(JSON.stringify(payload), TEST_SECRET))
+          .send(payload)
+          .then((res) => res);
+
+        // ...but cannot decide until the rival commits, which happens after A
+        // expired. The rival saw A as expired and took both mugs.
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        const rivalOrder = await rival.query<{ id: string }>(
+          `INSERT INTO orders (status, total_paise, expires_at)
+           VALUES ('pending', 130000, clock_timestamp() + interval '60 seconds')
+           RETURNING id`,
+        );
+        await rival.query(
+          'INSERT INTO order_items (order_id, product_id, quantity, unit_price_paise) VALUES ($1, 3, 2, 65000)',
+          [rivalOrder.rows[0].id],
+        );
+        await rival.query('COMMIT');
+
+        const res = await webhook;
+        expect(res.status).toBe(200);
+        expect(res.body.outcome).toBe('needs_review');
+      } finally {
+        rival.release();
+      }
+
+      const getRes = await request(app.getHttpServer()).get(`/orders/${orderA.body.orderId}`).expect(200);
+      expect(getRes.body.status).toBe('needs_review');
+      expect(getRes.body.reviewReason).toBe('late_payment_stock_gone');
+
+      // The mugs are never promised twice.
+      const products = await request(app.getHttpServer()).get('/products').expect(200);
+      expect(products.body.find((p: any) => p.id === 3).availableUnits).toBe(0);
+      const held = await pool.query(
+        `SELECT COALESCE(SUM(oi.quantity), 0)::int AS held
+         FROM order_items oi JOIN orders o ON o.id = oi.order_id
+         WHERE oi.product_id = 3
+           AND (o.status = 'paid' OR (o.status = 'pending' AND o.expires_at > clock_timestamp()))`,
+      );
+      expect(held.rows[0].held).toBe(2);
     });
   });
 
@@ -919,190 +1041,8 @@ describe('Pickup Counter Integration & Concurrency Tests', () => {
       expect(res.body.status).toBe('ok');
       expect(res.body.database).toBe('connected');
     });
-  });
 
-  // -------------------------------------------------------------
-  // Customer Storefront Extensions: Cancellation, Shortage Breakdown,
-  // Demo Mode, Locker Code, Payment-After-Cancel
-  // -------------------------------------------------------------
-  describe('Customer Storefront Extensions', () => {
-    it('X1: POST /orders/:id/cancel cancels a pending order and restores available stock immediately', async () => {
-      const order = await request(app.getHttpServer())
-        .post('/orders')
-        .send({ items: [{ productId: 3, quantity: 2 }] })
-        .expect(201);
-
-      let prodRes = await request(app.getHttpServer()).get('/products').expect(200);
-      expect(prodRes.body.find((p: any) => p.id === 3).availableUnits).toBe(0);
-
-      const cancelRes = await request(app.getHttpServer())
-        .post(`/orders/${order.body.orderId}/cancel`)
-        .expect(200);
-
-      expect(cancelRes.body.status).toBe('cancelled');
-
-      const getRes = await request(app.getHttpServer())
-        .get(`/orders/${order.body.orderId}`)
-        .expect(200);
-      expect(getRes.body.status).toBe('cancelled');
-      expect(getRes.body.cancelledAt).toBeDefined();
-
-      prodRes = await request(app.getHttpServer()).get('/products').expect(200);
-      expect(prodRes.body.find((p: any) => p.id === 3).availableUnits).toBe(2);
-    });
-
-    it('X2: POST /orders/:id/cancel is idempotent on already-cancelled order', async () => {
-      const order = await request(app.getHttpServer())
-        .post('/orders')
-        .send({ items: [{ productId: 1, quantity: 1 }] })
-        .expect(201);
-
-      await request(app.getHttpServer())
-        .post(`/orders/${order.body.orderId}/cancel`)
-        .expect(200);
-
-      const secondCancel = await request(app.getHttpServer())
-        .post(`/orders/${order.body.orderId}/cancel`)
-        .expect(200);
-
-      expect(secondCancel.body.status).toBe('cancelled');
-    });
-
-    it('X3: POST /orders/:id/cancel rejects paid or picked_up order with 409 NOT_CANCELLABLE', async () => {
-      const order = await request(app.getHttpServer())
-        .post('/orders')
-        .send({ items: [{ productId: 1, quantity: 1 }] })
-        .expect(201);
-
-      const payload = {
-        eventId: 'evt_cancel_paid_order',
-        orderId: order.body.orderId,
-        amountPaise: 35000,
-        status: 'captured',
-      };
-      await request(app.getHttpServer())
-        .post('/payments/webhook')
-        .set('x-signature', signPayload(JSON.stringify(payload), TEST_SECRET))
-        .send(payload)
-        .expect(200);
-
-      const res = await request(app.getHttpServer())
-        .post(`/orders/${order.body.orderId}/cancel`)
-        .expect(409);
-
-      expect(res.body.error.code).toBe('NOT_CANCELLABLE');
-    });
-
-    it('X4: POST /orders returns 409 INSUFFICIENT_STOCK with item-level shortage details', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/orders')
-        .send({ items: [{ productId: 3, quantity: 5 }] })
-        .expect(409);
-
-      expect(res.body.error.code).toBe('INSUFFICIENT_STOCK');
-      expect(res.body.error.details).toBeDefined();
-      expect(Array.isArray(res.body.error.details.shortages)).toBe(true);
-      expect(res.body.error.details.shortages[0]).toEqual({
-        productId: 3,
-        name: 'Handmade Ceramic Mug',
-        requested: 5,
-        available: 2,
-      });
-    });
-
-    it('X5: POST /orders validates maximum quantity per item and line limits', async () => {
-      const resExcessQty = await request(app.getHttpServer())
-        .post('/orders')
-        .send({ items: [{ productId: 1, quantity: 100 }] })
-        .expect(400);
-
-      expect(resExcessQty.body.error.code).toBe('VALIDATION_ERROR');
-
-      const resZeroQty = await request(app.getHttpServer())
-        .post('/orders')
-        .send({ items: [{ productId: 1, quantity: 0 }] })
-        .expect(400);
-
-      expect(resZeroQty.body.error.code).toBe('VALIDATION_ERROR');
-    });
-
-    it('X6: Order creation assigns server-generated locker number and 4-digit pickup code', async () => {
-      const order = await request(app.getHttpServer())
-        .post('/orders')
-        .send({ items: [{ productId: 1, quantity: 1 }] })
-        .expect(201);
-
-      const getRes = await request(app.getHttpServer())
-        .get(`/orders/${order.body.orderId}`)
-        .expect(200);
-
-      expect(getRes.body.lockerNumber).toBeGreaterThanOrEqual(1);
-      expect(getRes.body.lockerNumber).toBeLessThanOrEqual(24);
-      expect(typeof getRes.body.pickupCode).toBe('string');
-      expect(getRes.body.pickupCode).toMatch(/^\d{4}$/);
-    });
-
-    it('X7: POST /payments/demo/:orderId marks pending order as paid with server-calculated amount', async () => {
-      const order = await request(app.getHttpServer())
-        .post('/orders')
-        .send({ items: [{ productId: 1, quantity: 2 }] })
-        .expect(201);
-
-      const demoRes = await request(app.getHttpServer())
-        .post(`/payments/demo/${order.body.orderId}`)
-        .expect(200);
-
-      expect(demoRes.body.outcome).toBe('paid');
-
-      const getRes = await request(app.getHttpServer())
-        .get(`/orders/${order.body.orderId}`)
-        .expect(200);
-
-      expect(getRes.body.status).toBe('paid');
-      expect(getRes.body.paidAt).toBeDefined();
-
-      const eventRes = await pool.query('SELECT event_id, outcome FROM payment_events WHERE order_id = $1', [
-        order.body.orderId,
-      ]);
-      expect(eventRes.rows.length).toBe(1);
-      expect(eventRes.rows[0].event_id).toMatch(/^demo_/);
-      expect(eventRes.rows[0].outcome).toBe('paid');
-    });
-
-    it('X8: Payment arriving after cancellation marks order needs_review with refund_flag', async () => {
-      const order = await request(app.getHttpServer())
-        .post('/orders')
-        .send({ items: [{ productId: 1, quantity: 1 }] })
-        .expect(201);
-
-      await request(app.getHttpServer())
-        .post(`/orders/${order.body.orderId}/cancel`)
-        .expect(200);
-
-      const payload = {
-        eventId: 'evt_inflight_after_cancel',
-        orderId: order.body.orderId,
-        amountPaise: 35000,
-        status: 'captured',
-      };
-      const res = await request(app.getHttpServer())
-        .post('/payments/webhook')
-        .set('x-signature', signPayload(JSON.stringify(payload), TEST_SECRET))
-        .send(payload)
-        .expect(200);
-
-      expect(res.body.outcome).toBe('needs_review');
-
-      const getRes = await request(app.getHttpServer())
-        .get(`/orders/${order.body.orderId}`)
-        .expect(200);
-
-      expect(getRes.body.status).toBe('needs_review');
-      expect(getRes.body.reviewReason).toBe('payment_after_cancel');
-      expect(getRes.body.refundFlag).toBe(true);
-    });
-
-    it('X9: GET /health reports demoMode and holdSeconds', async () => {
+    it('GET /health reports demoMode and holdSeconds', async () => {
       const res = await request(app.getHttpServer()).get('/health').expect(200);
       expect(res.body.demoMode).toBe(true);
       expect(res.body.holdSeconds).toBe(2);

@@ -53,9 +53,8 @@ export class PaymentsService {
         id: string;
         status: OrderStatus;
         total_paise: number;
-        is_expired: boolean;
       }>(
-        `SELECT id, status, total_paise, (expires_at <= clock_timestamp()) AS is_expired
+        `SELECT id, status, total_paise
          FROM orders
          WHERE id = $1
          FOR UPDATE`,
@@ -119,8 +118,37 @@ export class PaymentsService {
         return { outcome: 'needs_review' };
       }
 
-      // 6. Valid payment within hold period
-      if (order.status === 'pending' && !order.is_expired) {
+      // 6. Lock this order's product rows (ascending id, same order as
+      //    createOrder) BEFORE deciding whether the payment is in time.
+      //    createOrder treats a pending order as free stock the instant
+      //    expires_at passes, so the in-time decision and the commit that makes
+      //    it visible must not straddle the 120s boundary. Holding the product
+      //    locks serialises us with every createOrder touching these products:
+      //    one that starts after our decision waits for our commit and sees the
+      //    order as paid; one that committed first is seen by the late-payment
+      //    stock check below.
+      const itemsRes = await client.query<{ product_id: number; quantity: number }>(
+        'SELECT product_id, quantity FROM order_items WHERE order_id = $1 ORDER BY product_id ASC',
+        [orderId],
+      );
+
+      const items = itemsRes.rows;
+      const productIds = items.map((i) => i.product_id);
+
+      const prodRes = await client.query<{ id: number; stock: number }>(
+        'SELECT id, stock FROM products WHERE id = ANY($1) ORDER BY id ASC FOR UPDATE',
+        [productIds],
+      );
+      const stockMap = new Map(prodRes.rows.map((p) => [p.id, p.stock]));
+
+      // Read the clock only now that the product locks are held.
+      const expiryRes = await client.query<{ in_time: boolean }>(
+        'SELECT expires_at > clock_timestamp() AS in_time FROM orders WHERE id = $1',
+        [orderId],
+      );
+
+      // 7. Valid payment within hold period
+      if (order.status === 'pending' && expiryRes.rows[0].in_time) {
         this.logger.log(`Valid in-time payment for orderId=${orderId}. Marking paid.`);
         await client.query(
           `UPDATE orders
@@ -132,24 +160,8 @@ export class PaymentsService {
         return { outcome: 'paid' };
       }
 
-      // 7. Late payment handling (order is expired, or pending but past expiry)
+      // 8. Late payment handling (order is expired, or pending but past expiry)
       this.logger.log(`Late payment arrived for orderId=${orderId}. Evaluating stock availability...`);
-
-      // Retrieve items
-      const itemsRes = await client.query<{ product_id: number; quantity: number }>(
-        'SELECT product_id, quantity FROM order_items WHERE order_id = $1 ORDER BY product_id ASC',
-        [orderId],
-      );
-
-      const items = itemsRes.rows;
-      const productIds = items.map((i) => i.product_id);
-
-      // Lock products sorted by ID
-      const prodRes = await client.query<{ id: number; stock: number }>(
-        'SELECT id, stock FROM products WHERE id = ANY($1) ORDER BY id ASC FOR UPDATE',
-        [productIds],
-      );
-      const stockMap = new Map(prodRes.rows.map((p) => [p.id, p.stock]));
 
       // Calculate held units
       const heldMap = await this.inventoryRepo.getHeldUnits(client, productIds);
