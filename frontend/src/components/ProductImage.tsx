@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Product } from '@pickup-counter/shared';
+import { Product } from '../common';
 
 interface ProductImageProps {
   product: Product;

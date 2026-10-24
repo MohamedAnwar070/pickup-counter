@@ -2,7 +2,7 @@ import { Injectable, HttpStatus } from '@nestjs/common';
 import { DatabaseService } from '../../common/database/database.service';
 import { InventoryRepo } from '../inventory/inventory.repo';
 import { AppError } from '../../common/errors/app-error';
-import { PickupClaimResponse, OrderStatus } from '@pickup-counter/shared';
+import { PickupClaimResponse, OrderStatus } from '../../common';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

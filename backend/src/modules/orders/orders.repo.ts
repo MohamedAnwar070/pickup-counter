@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { DatabaseService } from '../../common/database/database.service';
-import { OrderStatus } from '@pickup-counter/shared';
+import { OrderStatus } from '../../common';
 
 export interface OrderDetailRow {
   id: string;

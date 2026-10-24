@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Product, formatRupees } from '@pickup-counter/shared';
+import { Product, formatRupees } from '../common';
 import { useShop } from '../state/ShopContext';
 import { ProductImage } from './ProductImage';
 

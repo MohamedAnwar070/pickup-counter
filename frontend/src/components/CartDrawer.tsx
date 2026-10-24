@@ -1,9 +1,8 @@
 import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { formatRupees } from '@pickup-counter/shared';
+import { formatRupees, formatHoldDuration } from '../common';
 import { useShop } from '../state/ShopContext';
 import { ProductImage } from './ProductImage';
-import { formatHoldDuration } from '../utils/hold';
 
 export const CartDrawer: React.FC = () => {
   const {

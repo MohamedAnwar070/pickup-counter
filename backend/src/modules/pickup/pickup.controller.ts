@@ -1,6 +1,6 @@
 import { Controller, Post, Param, HttpCode, HttpStatus } from '@nestjs/common';
 import { PickupService } from './pickup.service';
-import { PickupClaimResponse } from '@pickup-counter/shared';
+import { PickupClaimResponse } from '../../common';
 
 @Controller('orders')
 export class PickupController {

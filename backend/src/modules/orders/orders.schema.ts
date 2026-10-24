@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_ORDER_LINES, MAX_ORDER_QUANTITY } from '@pickup-counter/shared';
+import { MAX_ORDER_LINES, MAX_ORDER_QUANTITY } from '../../common';
 
 export const orderItemInputSchema = z.object({
   productId: z.number().int().positive({ message: 'productId must be a positive integer' }),

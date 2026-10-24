@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ProductsRepo } from './products.repo';
 import { InventoryRepo, computeAvailable } from '../inventory/inventory.repo';
-import { Product } from '@pickup-counter/shared';
+import { Product } from '../../common';
 
 @Injectable()
 export class ProductsService {

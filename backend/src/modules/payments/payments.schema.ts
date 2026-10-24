@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { OrderStatus, WebhookOutcome, ReviewReason } from '@pickup-counter/shared';
+import { OrderStatus, WebhookOutcome, ReviewReason } from '../../common';
 
 export const webhookPayloadSchema = z
   .object({

@@ -3,7 +3,7 @@ import { mergeLineItems } from '../modules/orders/orders.schema';
 import { decideWebhookOutcome, canTransition } from '../modules/payments/payments.schema';
 import { verifySignature, signPayload } from './crypto/hmac';
 import { secondsLeft } from './time/clock';
-import { toPaise, formatRupees, paiseToRupees } from '@pickup-counter/shared';
+import { toPaise, formatRupees, paiseToRupees } from './money';
 
 describe('Unit Tests (G1 - G7)', () => {
   describe('G1: decideWebhookOutcome table-driven tests', () => {

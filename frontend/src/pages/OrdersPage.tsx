@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { formatRupees, OrderStatus } from '@pickup-counter/shared';
+import { formatRupees, OrderStatus } from '../common';
 import { useOrders, SavedOrder } from '../state/OrdersContext';
 
 const statusLabels: Record<OrderStatus, string> = {

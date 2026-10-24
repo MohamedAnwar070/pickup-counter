@@ -159,10 +159,10 @@ expired (after sweeper or read)
 
 ---
 
-## 3. Code Organization & Shared Libraries
+## 3. Code Organization & Common Modules
 
-- `shared/`: Shared across backend and frontend. Contains canonical TypeScript types (`Product`, `Order`, `OrderStatus`, `WebhookPayload`), domain constants (`HOLD_SECONDS = 120`), and money arithmetic helpers (`toPaise`, `formatRupees`, `paiseToRupees`).
-- `backend/src/common/`: Shared internally within the backend service (database connection pool, `withTransaction`, HMAC cryptographic verification, time arithmetic, `AppError`, and `AllExceptionsFilter`).
+- `backend/src/common/`: Shared internally across backend modules—canonical domain constants (`HOLD_SECONDS = 120`, `MAX_ORDER_QUANTITY`, `ERROR_CODES`), TypeScript contracts (`Product`, `Order`, `OrderStatus`, `WebhookPayload`), money arithmetic helpers (`toPaise`, `formatRupees`, `paiseToRupees`), PostgreSQL connection pool & `withTransaction`, HMAC-SHA256 verification, time arithmetic, `AppError`, `AllExceptionsFilter`, and `ZodValidationPipe`.
+- `frontend/src/common/`: Shared internally across frontend pages and components—TypeScript API contracts (`Product`, `GetOrderResponse`, `OrderStatus`), currency formatting (`formatRupees`), hold duration formatting (`formatHoldDuration`), and Web Audio feedback (`sound`).
 - `backend/src/modules/`: Modular domain design:
   - `inventory`: Stock reservation query (`getHeldUnits`) and permanent decrement (`decrementStock`).
   - `products`: Product catalog listing and availability calculation.

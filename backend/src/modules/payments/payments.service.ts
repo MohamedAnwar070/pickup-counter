@@ -4,7 +4,7 @@ import { DatabaseService } from '../../common/database/database.service';
 import { PaymentsRepo } from './payments.repo';
 import { InventoryRepo } from '../inventory/inventory.repo';
 import { NormalizedWebhookPayload } from './payments.schema';
-import { WebhookResponse, OrderStatus } from '@pickup-counter/shared';
+import { WebhookResponse, OrderStatus } from '../../common';
 import { AppError } from '../../common/errors/app-error';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

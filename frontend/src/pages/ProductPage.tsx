@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { formatRupees } from '@pickup-counter/shared';
+import { formatRupees, formatHoldDuration } from '../common';
 import { useShop } from '../state/ShopContext';
 import { ProductCard } from '../components/ProductCard';
 import { ProductImage } from '../components/ProductImage';
-import { formatHoldDuration } from '../utils/hold';
 
 export const ProductPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();

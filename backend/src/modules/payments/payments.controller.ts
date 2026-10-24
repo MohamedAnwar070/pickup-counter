@@ -14,7 +14,7 @@ import { PaymentsService } from './payments.service';
 import { normalizeWebhookPayload } from './payments.schema';
 import { verifySignature } from '../../common/crypto/hmac';
 import { AppError } from '../../common/errors/app-error';
-import { WebhookResponse } from '@pickup-counter/shared';
+import { WebhookResponse } from '../../common';
 
 @Controller('payments')
 export class PaymentsController {

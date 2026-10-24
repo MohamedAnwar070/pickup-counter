@@ -6,7 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { CreateOrderResponse, OrderStatus } from '@pickup-counter/shared';
+import { CreateOrderResponse, OrderStatus } from '../common';
 import { ApiError, fetchOrder } from '../api/client';
 
 export interface SavedOrder {

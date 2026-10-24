@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useShop } from '../state/ShopContext';
-import { formatHoldDuration } from '../utils/hold';
+import { formatHoldDuration } from '../common';
 
 export const HowItWorksPage: React.FC = () => {
   const { holdSeconds } = useShop();

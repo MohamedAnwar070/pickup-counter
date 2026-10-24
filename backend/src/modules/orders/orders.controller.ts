@@ -15,7 +15,7 @@ import {
   CancelOrderResponse,
   CreateOrderResponse,
   GetOrderResponse,
-} from '@pickup-counter/shared';
+} from '../../common';
 
 @Controller('orders')
 export class OrdersController {

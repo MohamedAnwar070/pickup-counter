@@ -11,7 +11,7 @@ import {
   HealthResponse,
   Product,
   StockShortage,
-} from '@pickup-counter/shared';
+} from '../common';
 import { fetchHealth, fetchProducts } from '../api/client';
 
 export interface CartLine {

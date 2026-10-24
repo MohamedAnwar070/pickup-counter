@@ -1,7 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
-import { formatRupees, GetOrderResponse, OrderStatus } from '@pickup-counter/shared';
+import {
+  formatRupees,
+  GetOrderResponse,
+  OrderStatus,
+  sound,
+  formatHoldDuration,
+} from '../common';
 import {
   ApiError,
   cancelOrder,
@@ -12,8 +18,6 @@ import {
 import { useCountdown } from '../hooks/useCountdown';
 import { useOrders } from '../state/OrdersContext';
 import { useShop } from '../state/ShopContext';
-import { sound } from '../utils/audio';
-import { formatHoldDuration } from '../utils/hold';
 
 type PaymentMethod = 'upi' | 'card' | 'counter';
 

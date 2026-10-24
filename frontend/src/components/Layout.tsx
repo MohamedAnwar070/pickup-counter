@@ -1,11 +1,10 @@
 import React, { useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { formatRupees } from '@pickup-counter/shared';
+import { formatRupees, formatHoldDuration } from '../common';
 import { useOrders } from '../state/OrdersContext';
 import { useShop } from '../state/ShopContext';
 import { CartDrawer } from './CartDrawer';
 import { Navbar } from './Navbar';
-import { formatHoldDuration } from '../utils/hold';
 
 const ActiveReservationBanner: React.FC = () => {
   const { activeOrder } = useOrders();

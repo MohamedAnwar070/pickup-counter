@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { formatRupees, StockShortage } from '@pickup-counter/shared';
+import { formatRupees, StockShortage, formatHoldDuration } from '../common';
 import { ApiError, createOrder } from '../api/client';
 import { useOrders } from '../state/OrdersContext';
 import { useShop } from '../state/ShopContext';
 import { ProductImage } from '../components/ProductImage';
-import { formatHoldDuration } from '../utils/hold';
 
 export const CheckoutPage: React.FC = () => {
   const {

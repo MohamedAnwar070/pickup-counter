@@ -8,7 +8,7 @@ import {
   Product,
   StockShortage,
   WebhookResponse,
-} from '@pickup-counter/shared';
+} from '../common';
 
 const BASE_URL = '';
 

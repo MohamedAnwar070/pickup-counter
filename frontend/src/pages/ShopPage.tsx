@@ -1,7 +1,7 @@
 import React, { useDeferredValue, useMemo, useState } from 'react';
 import { useShop } from '../state/ShopContext';
 import { ProductCard } from '../components/ProductCard';
-import { formatHoldDuration } from '../utils/hold';
+import { formatHoldDuration } from '../common';
 
 const categoryIcons: Record<string, string> = {
   Bakery: '🥖',

@@ -1,8 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { HealthResponse } from '@pickup-counter/shared';
+import { HealthResponse, HOLD_SECONDS as DEFAULT_HOLD_SECONDS } from '../../common';
 import { DatabaseService } from '../../common/database/database.service';
-import { HOLD_SECONDS as DEFAULT_HOLD_SECONDS } from '@pickup-counter/shared';
 
 @Controller('health')
 export class HealthController {
