@@ -23,21 +23,21 @@ type PaymentMethod = 'upi' | 'card' | 'counter';
 
 const statusLabels: Record<OrderStatus, string> = {
   pending: 'Awaiting payment',
-  paid: 'Paid · ready for pickup',
+  paid: 'Paid · Ready for pickup',
   expired: 'Hold expired',
-  needs_review: 'Needs counter review',
-  picked_up: 'Collected',
-  cancelled: 'Reservation cancelled',
+  needs_review: 'Needs review',
+  picked_up: 'Picked up',
+  cancelled: 'Cancelled',
 };
 
 const reviewReasonLabels: Record<string, string> = {
-  amount_mismatch: 'The amount received did not match this order.',
-  late_payment_stock_gone: 'Payment arrived after the hold, and stock was no longer available.',
+  amount_mismatch: 'Payment amount did not match the server order total.',
+  late_payment_stock_gone: 'Payment arrived after the hold expired and stock was already claimed.',
   payment_after_cancel: 'Payment arrived after the reservation was cancelled.',
 };
 
 const formatOrderDate = (value?: string | null) => {
-  if (!value) return '—';
+  if (!value) return 'N/A';
   return new Date(value).toLocaleString('en-IN', {
     day: 'numeric',
     month: 'short',
@@ -86,11 +86,9 @@ export const OrderPage: React.FC = () => {
       } catch (error) {
         if (error instanceof ApiError && error.status === 404) {
           forgetOrder(orderId);
-          setLoadError('That reservation could not be found.');
+          setLoadError('Order not found.');
         } else if (!silent) {
-          setLoadError(
-            error instanceof Error ? error.message : 'Could not load this reservation.',
-          );
+          setLoadError(error instanceof Error ? error.message : 'Unable to load order.');
         }
       } finally {
         if (!silent) setIsLoading(false);
@@ -119,15 +117,13 @@ export const OrderPage: React.FC = () => {
       const result = await payDemo(order.id);
       await loadOrder(true);
       if (result.outcome === 'needs_review') {
-        setPaymentError('The payment was received but needs a counter review.');
+        setPaymentError('Payment flagged for counter review.');
       } else if (result.outcome === 'ignored' || result.duplicate) {
-        setPaymentError('That payment event was already processed. Checking the order…');
+        setPaymentError('Payment event already processed.');
       }
     } catch (error) {
       setPaymentError(
-        error instanceof ApiError
-          ? error.message
-          : 'The sandbox payment could not be completed. Please try again.',
+        error instanceof ApiError ? error.message : 'Payment failed. Please try again.',
       );
       await loadOrder(true).catch(() => undefined);
     } finally {
@@ -149,12 +145,12 @@ export const OrderPage: React.FC = () => {
       updateOrderStatus(order.id, 'cancelled');
       previousStatus.current = 'cancelled';
       setShowCancelConfirm(false);
-      showToast('Reservation cancelled. The stock is back on the counter.', 'info');
+      showToast('Reservation cancelled. Stock returned to catalog.', 'info');
     } catch (error) {
       if (error instanceof ApiError) {
         setCancelError(error.message);
       } else {
-        setCancelError('Could not cancel this reservation. Please try again.');
+        setCancelError('Unable to cancel reservation.');
       }
       await loadOrder(true).catch(() => undefined);
     } finally {
@@ -174,9 +170,7 @@ export const OrderPage: React.FC = () => {
       previousStatus.current = 'picked_up';
     } catch (error) {
       setClaimError(
-        error instanceof ApiError
-          ? error.message
-          : 'The locker could not be opened. Please ask a counter attendant.',
+        error instanceof ApiError ? error.message : 'Unable to claim locker pickup.',
       );
       await loadOrder(true).catch(() => undefined);
     } finally {
@@ -187,15 +181,14 @@ export const OrderPage: React.FC = () => {
   if (!orderId || loadError) {
     return (
       <div className="empty-catalog-state page-empty-state">
-        <div className="empty-icon">🔎</div>
-        <h2>{loadError || 'Reservation not found'}</h2>
-        <p>Check your reservations or start a fresh order from the counter.</p>
+        <h2>{loadError || 'Order not found'}</h2>
+        <p>Check your saved orders or start a new reservation from the catalog.</p>
         <div className="empty-state-actions">
-          <Link to="/orders" className="btn btn-secondary">
-            My reservations
+          <Link to="/orders" className="btn btn-secondary btn-sm">
+            My Orders
           </Link>
-          <Link to="/" className="btn btn-primary">
-            Back to shop
+          <Link to="/" className="btn btn-primary btn-sm">
+            Back to Catalog
           </Link>
         </div>
       </div>
@@ -203,17 +196,16 @@ export const OrderPage: React.FC = () => {
   }
 
   if (isLoading && !order) {
-    return <div className="page-loading-shell">Loading your reservation…</div>;
+    return <div className="page-loading-shell">Loading order...</div>;
   }
 
   if (!order) {
     return (
       <div className="empty-catalog-state page-empty-state">
-        <div className="empty-icon">🔎</div>
-        <h2>Reservation unavailable</h2>
-        <p>We could not load this order. Check your connection and try again.</p>
-        <button className="btn btn-primary" onClick={() => loadOrder()}>
-          Try again
+        <h2>Order unavailable</h2>
+        <p>Could not load order details. Please check your connection.</p>
+        <button className="btn btn-primary btn-sm" onClick={() => loadOrder()}>
+          Retry
         </button>
       </div>
     );
@@ -228,7 +220,7 @@ export const OrderPage: React.FC = () => {
   const holdLabel = formatHoldDuration(order.holdSeconds ?? holdSeconds);
   const lockerLabel = order.lockerNumber ? `Bay ${String(order.lockerNumber).padStart(2, '0')}` : null;
   const pickupCode = order.pickupCode ?? '----';
-  const totalLabel = isCollected ? 'Total paid' : 'Order total';
+  const totalLabel = isCollected ? 'Total Paid' : 'Order Total';
   const upiParams = new URLSearchParams({
     pa: 'metrosober.counter@demo',
     pn: 'MetroSober Counter',
@@ -243,24 +235,24 @@ export const OrderPage: React.FC = () => {
     <div className="order-page">
       <div className="order-page-topbar">
         <Link to="/" className="back-link">
-          ← Back to shop
+          ← Back to Catalog
         </Link>
-        <span className="order-ref">Order #{shortId}</span>
+        <span className="order-ref">ID: {order.id}</span>
       </div>
 
       <header className="order-page-header">
         <div>
-          <span className="section-eyebrow">MetroSober counter pickup</span>
+          <span className="section-eyebrow">Order #{shortId}</span>
           <h1>
-            {order.status === 'pending' && 'Your stock is reserved.'}
-            {order.status === 'paid' && 'Payment received. Your locker is ready.'}
-            {order.status === 'picked_up' && 'Collected. Enjoy your goods.'}
-            {order.status === 'expired' && 'The hold has ended.'}
-            {order.status === 'cancelled' && 'Reservation cancelled.'}
-            {order.status === 'needs_review' && 'Payment needs a counter check.'}
+            {order.status === 'pending' && 'Complete Payment'}
+            {order.status === 'paid' && 'Ready for Locker Pickup'}
+            {order.status === 'picked_up' && 'Order Picked Up'}
+            {order.status === 'expired' && 'Reservation Expired'}
+            {order.status === 'cancelled' && 'Reservation Cancelled'}
+            {order.status === 'needs_review' && 'Payment Under Review'}
           </h1>
           <p className="order-header-copy">
-            Placed {formatOrderDate(order.createdAt)} · {formatRupees(order.totalPaise)}
+            Created {formatOrderDate(order.createdAt)} · {formatRupees(order.totalPaise)}
           </p>
         </div>
         <span className={`order-status-badge status-${order.status}`}>
@@ -274,28 +266,28 @@ export const OrderPage: React.FC = () => {
           <span>1</span>
           <div>
             <strong>Reserved</strong>
-            <small>Stock held for you</small>
+            <small>Stock held</small>
           </div>
         </div>
         <div className={`timeline-step ${order.status !== 'pending' ? 'is-done' : ''}`}>
           <span>2</span>
           <div>
             <strong>Paid</strong>
-            <small>{order.paidAt ? formatOrderDate(order.paidAt) : 'Awaiting payment'}</small>
+            <small>{order.paidAt ? formatOrderDate(order.paidAt) : 'Pending'}</small>
           </div>
         </div>
         <div className={`timeline-step ${isPaid || order.status === 'picked_up' ? 'is-done' : ''}`}>
           <span>3</span>
           <div>
-            <strong>Ready</strong>
-            <small>{lockerLabel ? `${lockerLabel} locker` : 'After payment'}</small>
+            <strong>Locker Ready</strong>
+            <small>{lockerLabel ? lockerLabel : 'Assigned on payment'}</small>
           </div>
         </div>
         <div className={`timeline-step ${order.status === 'picked_up' ? 'is-done' : ''}`}>
           <span>4</span>
           <div>
-            <strong>Collected</strong>
-            <small>{order.pickedUpAt ? formatOrderDate(order.pickedUpAt) : 'Open your locker'}</small>
+            <strong>Picked Up</strong>
+            <small>{order.pickedUpAt ? formatOrderDate(order.pickedUpAt) : 'Pending pickup'}</small>
           </div>
         </div>
       </div>
@@ -309,16 +301,18 @@ export const OrderPage: React.FC = () => {
                   <div>
                     <span className="hold-kicker">
                       <span className="hold-live-dot"></span>
-                      {isZero ? 'Hold window ended' : 'Your exclusive hold'}
+                      {isZero ? 'Hold window ended' : `Active ${holdLabel} hold`}
                     </span>
                     <strong className="hold-time">{formatted}</strong>
                     <p>
                       {isZero
-                        ? 'We’re checking the final status with the counter. Please don’t make a new payment.'
-                        : `These units are held for you. Complete payment before the timer reaches zero.`}
+                        ? 'Syncing status with the server. Do not initiate a duplicate payment.'
+                        : 'Stock is reserved for this order until the timer reaches 00:00.'}
                     </p>
                   </div>
-                  <div className="hold-timer-icon">⏱</div>
+                  <div className="hold-meta-side">
+                    <span>Expires {formatOrderDate(order.expiresAt)}</span>
+                  </div>
                 </div>
                 <div className="progress-bar-track hold-progress">
                   <div
@@ -326,19 +320,15 @@ export const OrderPage: React.FC = () => {
                     style={{ width: `${percentage}%` }}
                   ></div>
                 </div>
-                <div className="hold-meta-row">
-                  <span>Expires {formatOrderDate(order.expiresAt)}</span>
-                  <span>Stock is not charged until payment</span>
-                </div>
               </div>
 
               <div className="payment-panel">
                 <div className="panel-heading payment-panel-heading">
                   <div>
-                    <h2>Choose how to pay</h2>
-                    <p>Complete your payment inside the hold window.</p>
+                    <h2>Payment Method</h2>
+                    <p>Select a payment option to complete your order.</p>
                   </div>
-                  <span className="sandbox-chip">Demo gateway</span>
+                  <span className="sandbox-chip">Sandbox Mode</span>
                 </div>
 
                 <div className="payment-method-tabs" role="tablist" aria-label="Payment method">
@@ -348,8 +338,7 @@ export const OrderPage: React.FC = () => {
                     className={`method-tab ${paymentMethod === 'upi' ? 'is-active' : ''}`}
                     onClick={() => setPaymentMethod('upi')}
                   >
-                    <span className="tab-icon">⚡</span>
-                    <span className="tab-text">UPI</span>
+                    UPI
                   </button>
                   <button
                     role="tab"
@@ -357,8 +346,7 @@ export const OrderPage: React.FC = () => {
                     className={`method-tab ${paymentMethod === 'card' ? 'is-active' : ''}`}
                     onClick={() => setPaymentMethod('card')}
                   >
-                    <span className="tab-icon">▣</span>
-                    <span className="tab-text">Card</span>
+                    Card
                   </button>
                   <button
                     role="tab"
@@ -366,8 +354,7 @@ export const OrderPage: React.FC = () => {
                     className={`method-tab ${paymentMethod === 'counter' ? 'is-active' : ''}`}
                     onClick={() => setPaymentMethod('counter')}
                   >
-                    <span className="tab-icon">⌂</span>
-                    <span className="tab-text">At counter</span>
+                    Counter Cash
                   </button>
                 </div>
 
@@ -376,25 +363,24 @@ export const OrderPage: React.FC = () => {
                     <div className="upi-qr-card">
                       <QRCodeSVG
                         value={upiLink}
-                        size={156}
+                        size={132}
                         level="M"
                         bgColor="#FFFFFF"
                         fgColor="#24211D"
                       />
-                      <span>Sandbox UPI QR</span>
+                      <span>UPI QR</span>
                     </div>
                     <div className="payment-copy">
-                      <h3>Pay {formatRupees(order.totalPaise)} by UPI</h3>
+                      <h3>Pay {formatRupees(order.totalPaise)} via UPI</h3>
                       <p>
-                        This QR is a working demo UPI intent, not a live payment request.
-                        Use the button below to simulate a successful provider callback.
+                        Use the button below to trigger a sandbox UPI payment callback for this order.
                       </p>
                       <div className="upi-id-pill">
                         <code>metrosober.counter@demo</code>
                       </div>
                       {health?.demoMode === false ? (
                         <p className="payment-disabled-note">
-                          Demo checkout is disabled. Ask the counter to send a signed webhook.
+                          Demo checkout is disabled. Send a signed webhook using the CLI command below.
                         </p>
                       ) : (
                         <button
@@ -404,12 +390,12 @@ export const OrderPage: React.FC = () => {
                         >
                           {isPaying ? (
                             <>
-                              <span className="spinner"></span> Confirming payment…
+                              <span className="spinner"></span> Processing payment...
                             </>
                           ) : isZero ? (
-                            'Hold ended — confirming status'
+                            'Hold expired (syncing status)'
                           ) : (
-                            <>Complete sandbox UPI payment · {formatRupees(order.totalPaise)}</>
+                            `Simulate UPI Payment (${formatRupees(order.totalPaise)})`
                           )}
                         </button>
                       )}
@@ -419,31 +405,9 @@ export const OrderPage: React.FC = () => {
 
                 {paymentMethod === 'card' && (
                   <div className="payment-body payment-message-body">
-                    <div className="payment-message-icon">▣</div>
-                    <h3>Card gateway is not connected</h3>
+                    <h3>Sandbox Card Payment</h3>
                     <p>
-                      This build intentionally does not collect card details. In production,
-                      this step would hand off to an authorised payment provider.
-                    </p>
-                    {health?.demoMode !== false && (
-                      <button
-                        className="btn btn-secondary"
-                        onClick={handleDemoPayment}
-                        disabled={isPaying || isZero}
-                      >
-                        Simulate a successful card payment
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {paymentMethod === 'counter' && (
-                  <div className="payment-body payment-message-body">
-                    <div className="payment-message-icon">⌂</div>
-                    <h3>Pay an attendant at the counter</h3>
-                    <p>
-                      Show order <strong>#{shortId}</strong> to the counter team. In this
-                      demo, the attendant can confirm the cash payment below.
+                      Card inputs are omitted in sandbox mode. Trigger a simulated card capture below.
                     </p>
                     {health?.demoMode !== false && (
                       <button
@@ -451,7 +415,25 @@ export const OrderPage: React.FC = () => {
                         onClick={handleDemoPayment}
                         disabled={isPaying || isZero}
                       >
-                        {isPaying ? 'Staff confirming…' : 'Staff: confirm cash received (demo)'}
+                        Simulate Card Payment ({formatRupees(order.totalPaise)})
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {paymentMethod === 'counter' && (
+                  <div className="payment-body payment-message-body">
+                    <h3>Pay at the Counter</h3>
+                    <p>
+                      Provide order reference <strong>#{shortId}</strong> to staff at the counter.
+                    </p>
+                    {health?.demoMode !== false && (
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleDemoPayment}
+                        disabled={isPaying || isZero}
+                      >
+                        {isPaying ? 'Confirming...' : 'Confirm Counter Payment (Demo)'}
                       </button>
                     )}
                   </div>
@@ -460,33 +442,21 @@ export const OrderPage: React.FC = () => {
                 {paymentError && <div className="alert alert-error">{paymentError}</div>}
 
                 <div className="webhook-helper">
-                  <strong>Reviewer payment command</strong>
-                  <span>Run from the repo root to send a correctly signed webhook:</span>
+                  <strong>CLI Signed Webhook Command:</strong>
                   <code>{webhookCommand}</code>
-                </div>
-
-                <div className="payment-footer-note">
-                  <span>🔒</span>
-                  <span>
-                    The server calculates the total and verifies every payment outcome. The
-                    browser never receives the webhook secret.
-                  </span>
                 </div>
               </div>
 
               <div className="cancel-zone">
                 {!showCancelConfirm ? (
                   <button className="btn-text-danger" onClick={() => setShowCancelConfirm(true)}>
-                    Cancel this reservation
+                    Cancel Reservation & Release Stock
                   </button>
                 ) : (
                   <div className="cancel-confirm">
                     <div>
-                      <strong>Release your hold?</strong>
-                      <p>
-                        The items go back to the counter immediately and cannot be reserved
-                        again at this price unless they are still available.
-                      </p>
+                      <strong>Cancel this reservation?</strong>
+                      <p>Held units will return to available stock immediately.</p>
                       {cancelError && <p className="form-error">{cancelError}</p>}
                     </div>
                     <div className="cancel-confirm-actions">
@@ -495,14 +465,14 @@ export const OrderPage: React.FC = () => {
                         onClick={() => setShowCancelConfirm(false)}
                         disabled={isCancelling}
                       >
-                        Keep reservation
+                        Keep Hold
                       </button>
                       <button
                         className="btn btn-danger btn-sm"
                         onClick={handleCancel}
                         disabled={isCancelling}
                       >
-                        {isCancelling ? 'Cancelling…' : 'Cancel hold'}
+                        {isCancelling ? 'Cancelling...' : 'Confirm Cancel'}
                       </button>
                     </div>
                   </div>
@@ -516,11 +486,10 @@ export const OrderPage: React.FC = () => {
               <div className="order-success-hero">
                 <div className="success-badge-pulse">✓</div>
                 <div>
-                  <span className="success-kicker">Payment verified</span>
-                  <h2>Your locker is ready</h2>
+                  <span className="success-kicker">Payment Confirmed</span>
+                  <h2>Locker Ready for Collection</h2>
                   <p>
-                    {formatRupees(order.totalPaise)} paid. Head to the MetroSober counter,
-                    open your locker, and take your goods.
+                    {formatRupees(order.totalPaise)} received. Open your assigned locker bay below to collect your items.
                   </p>
                 </div>
               </div>
@@ -528,40 +497,16 @@ export const OrderPage: React.FC = () => {
               <div className="locker-card">
                 <div className="locker-display">
                   <div className="locker-screen">
-                    <span className="locker-screen-label">METROSOBER LOCKER</span>
-                    <strong>{lockerLabel ?? 'Bay assigned'}</strong>
-                    <span className="locker-ready-pill">READY FOR COLLECTION</span>
+                    <span className="locker-screen-label">ASSIGNED LOCKER</span>
+                    <strong>{lockerLabel ?? 'Bay 01'}</strong>
+                    <span className="locker-ready-pill">READY FOR PICKUP</span>
                   </div>
                   <div className="locker-door-handle"></div>
                 </div>
                 <div className="pickup-code-panel">
-                  <span>Your pickup code</span>
+                  <span>Pickup Code</span>
                   <strong>{pickupCode}</strong>
-                  <p>Show this code at the counter if an attendant is present.</p>
-                </div>
-              </div>
-
-              <div className="pickup-instructions">
-                <div>
-                  <span className="instruction-number">1</span>
-                  <p>
-                    <strong>Go to the counter</strong>
-                    <span>Look for locker {lockerLabel ?? 'bay'} in the collection wall.</span>
-                  </p>
-                </div>
-                <div>
-                  <span className="instruction-number">2</span>
-                  <p>
-                    <strong>Open your locker</strong>
-                    <span>Use the button below to trigger the demo locker release.</span>
-                  </p>
-                </div>
-                <div>
-                  <span className="instruction-number">3</span>
-                  <p>
-                    <strong>Take your goods</strong>
-                    <span>Collection is single-use and stock is decremented once.</span>
-                  </p>
+                  <p>Use this 4-digit code at the counter terminal.</p>
                 </div>
               </div>
 
@@ -572,17 +517,8 @@ export const OrderPage: React.FC = () => {
                 onClick={handleClaim}
                 disabled={isClaiming}
               >
-                {isClaiming
-                  ? 'Opening locker…'
-                  : `Open ${lockerLabel ?? 'locker'} & collect goods`}
+                {isClaiming ? 'Unlocking...' : `Open ${lockerLabel ?? 'Locker'} & Claim Order`}
               </button>
-              <p className="locker-single-use">
-                Locker opening is idempotent and single-use. If it jams, ask the counter team.
-              </p>
-
-              <Link to="/" className="text-link centered-link">
-                Keep browsing while you collect
-              </Link>
             </>
           )}
 
@@ -591,31 +527,30 @@ export const OrderPage: React.FC = () => {
               <div className="collected-banner">
                 <span className="collected-trophy">✓</span>
                 <div>
-                  <span className="success-kicker">Collection complete</span>
-                  <h2>Thanks for stopping by.</h2>
+                  <span className="success-kicker">Completed</span>
+                  <h2>Order Collected</h2>
                   <p>
-                    Your order was released from {lockerLabel ?? 'the locker'} and the counter
-                    stock was updated exactly once.
+                    Collected from {lockerLabel ?? 'the locker'}. Physical stock has been permanently decremented.
                   </p>
                 </div>
               </div>
 
               <div className="digital-receipt-card">
                 <div className="receipt-top-bar">
-                  <span>METROSOBER COUNTER · DIGITAL RECEIPT</span>
+                  <span>RECEIPT</span>
                   <span>{formatOrderDate(order.pickedUpAt)}</span>
                 </div>
                 <div className="receipt-meta-grid">
                   <div>
-                    <span className="meta-k">Order</span>
-                    <span className="meta-v">#{order.id}</span>
+                    <span className="meta-k">Order ID:</span>
+                    <span className="meta-v">{order.id}</span>
                   </div>
                   <div>
-                    <span className="meta-k">Locker</span>
-                    <span className="meta-v">{lockerLabel ?? '—'}</span>
+                    <span className="meta-k">Locker:</span>
+                    <span className="meta-v">{lockerLabel ?? 'N/A'}</span>
                   </div>
                   <div>
-                    <span className="meta-k">Pickup code</span>
+                    <span className="meta-k">Pickup Code:</span>
                     <span className="meta-v">{pickupCode}</span>
                   </div>
                 </div>
@@ -624,7 +559,7 @@ export const OrderPage: React.FC = () => {
                   {items.map((item) => (
                     <div key={item.productId} className="receipt-line">
                       <span>
-                        {item.name} × {item.quantity}
+                        {item.name} x {item.quantity}
                       </span>
                       <span>{formatRupees(item.unitPricePaise * item.quantity)}</span>
                     </div>
@@ -632,17 +567,17 @@ export const OrderPage: React.FC = () => {
                 </div>
                 <div className="receipt-divider"></div>
                 <div className="receipt-total-line">
-                  <span>Paid</span>
+                  <span>Total Paid</span>
                   <span className="receipt-total-val">{formatRupees(order.totalPaise)}</span>
                 </div>
               </div>
 
               <div className="collected-actions">
-                <Link to="/" className="btn btn-primary">
-                  Back to the counter
+                <Link to="/" className="btn btn-primary btn-sm">
+                  Back to Catalog
                 </Link>
-                <Link to="/orders" className="btn btn-secondary">
-                  View all reservations
+                <Link to="/orders" className="btn btn-secondary btn-sm">
+                  View All Orders
                 </Link>
               </div>
             </>
@@ -650,63 +585,50 @@ export const OrderPage: React.FC = () => {
 
           {order.status === 'expired' && (
             <div className="terminal-state-card state-expired">
-              <div className="terminal-state-icon">⏱</div>
-              <h2>Your {holdLabel} hold ended</h2>
+              <h2>Hold Window Expired</h2>
               <p>
-                The timer ran out before payment was confirmed, so the units went back to
-                the counter. Nothing was charged for this reservation.
+                The {holdLabel} hold expired before payment was confirmed, and reserved units were returned to available stock.
               </p>
               <div className="terminal-state-actions">
-                <Link to="/" className="btn btn-primary">
-                  Shop the counter again
+                <Link to="/" className="btn btn-primary btn-sm">
+                  Browse Catalog
                 </Link>
-                <Link to="/orders" className="btn btn-secondary">
-                  My reservations
+                <Link to="/orders" className="btn btn-secondary btn-sm">
+                  My Orders
                 </Link>
               </div>
-              <p className="terminal-hint">
-                If you paid just before the timer ended, wait a moment — a late payment can
-                still be accepted if stock is available.
-              </p>
             </div>
           )}
 
           {order.status === 'needs_review' && (
             <div className="terminal-state-card state-review">
-              <div className="terminal-state-icon">!</div>
-              <h2>We’re checking your payment</h2>
+              <h2>Payment Flagged for Review</h2>
               <p>
                 {reviewReasonLabels[order.reviewReason ?? ''] ??
-                  'The counter team needs to review this payment.'}
+                  'This payment requires manual review by counter staff.'}
               </p>
               <div className="review-reference">
-                <span>Reference</span>
+                <span>Order Ref:</span>
                 <strong>#{shortId}</strong>
               </div>
-              <p className="terminal-hint">
-                Do not pay again. Please show this reference to a counter attendant. The team
-                will resolve the order or process a refund.
-              </p>
               {order.refundFlag && (
-                <span className="refund-flag">Refund flag raised on this order</span>
+                <div>
+                  <span className="refund-flag">Refund Flagged</span>
+                </div>
               )}
             </div>
           )}
 
           {order.status === 'cancelled' && (
             <div className="terminal-state-card state-cancelled">
-              <div className="terminal-state-icon">✕</div>
-              <h2>No stock is being held</h2>
-              <p>
-                You cancelled this reservation. The goods were returned to the counter
-                immediately and no payment was taken.
-              </p>
+              <h2>Reservation Cancelled</h2>
+              <p>This hold was cancelled and all reserved units were returned to the catalog.</p>
               <div className="terminal-state-actions">
-                <Link to="/" className="btn btn-primary">
-                  Start again
+                <Link to="/" className="btn btn-primary btn-sm">
+                  Browse Catalog
                 </Link>
-                <Link to="/orders" className="btn btn-secondary">
-                  My reservations
+                <Link to="/orders" className="btn btn-secondary btn-sm">
+                  My Orders
                 </Link>
               </div>
             </div>
@@ -716,7 +638,7 @@ export const OrderPage: React.FC = () => {
         <aside className="order-summary-side">
           <div className="order-summary-card">
             <div className="panel-heading">
-              <h2>Order details</h2>
+              <h2>Order Summary</h2>
               <span className="summary-status">{statusLabels[order.status]}</span>
             </div>
 
@@ -726,7 +648,7 @@ export const OrderPage: React.FC = () => {
                   <div>
                     <strong>{item.name}</strong>
                     <span>
-                      {item.quantity} × {formatRupees(item.unitPricePaise)}
+                      {item.quantity} x {formatRupees(item.unitPricePaise)}
                     </span>
                   </div>
                   <span>{formatRupees(item.unitPricePaise * item.quantity)}</span>
@@ -743,34 +665,21 @@ export const OrderPage: React.FC = () => {
 
             <div className="order-facts">
               <div>
-                <span>Order</span>
+                <span>Reference</span>
                 <strong>#{shortId}</strong>
               </div>
               <div>
                 <span>Locker</span>
-                <strong>{isCollected ? lockerLabel ?? '—' : 'Assigned after payment'}</strong>
+                <strong>{isCollected ? lockerLabel ?? 'N/A' : 'After payment'}</strong>
               </div>
               <div>
-                <span>Pickup code</span>
-                <strong>
-                  {isCollected ? pickupCode : isPending ? 'After payment' : '—'}
-                </strong>
+                <span>Pickup Code</span>
+                <strong>{isCollected ? pickupCode : 'After payment'}</strong>
               </div>
               <div>
-                <span>Placed</span>
+                <span>Created</span>
                 <strong>{formatOrderDate(order.createdAt)}</strong>
               </div>
-            </div>
-          </div>
-
-          <div className="order-help-card">
-            <span className="order-help-icon">☏</span>
-            <div>
-              <strong>Need a hand?</strong>
-              <p>
-                Show order #{shortId} to the MetroSober counter team. Keep this page or find
-                it later in My reservations.
-              </p>
             </div>
           </div>
         </aside>

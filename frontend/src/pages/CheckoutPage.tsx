@@ -49,7 +49,7 @@ export const CheckoutPage: React.FC = () => {
 
       rememberOrder(response);
       clearCart();
-      showToast('Stock reserved. Complete payment within the hold window.');
+      showToast('Stock reserved. Complete payment before the timer ends.');
       navigate(`/order/${response.orderId}`, { replace: true });
     } catch (error) {
       if (error instanceof ApiError && error.code === 'INSUFFICIENT_STOCK') {
@@ -59,7 +59,7 @@ export const CheckoutPage: React.FC = () => {
         setErrorMessage(error.message);
         reconcileCart(affected);
         await refreshProducts(true).catch(() => undefined);
-        showToast('Some items changed while you were checking out. Your basket was updated.', 'error');
+        showToast('Stock changed. Cart quantities updated.', 'error');
       } else if (error instanceof ApiError) {
         setErrorCode(error.code);
         setErrorMessage(error.message);
@@ -67,7 +67,7 @@ export const CheckoutPage: React.FC = () => {
           await refreshProducts(true).catch(() => undefined);
         }
       } else {
-        setErrorMessage('The counter could not be reached. Please try again.');
+        setErrorMessage('Could not connect to server. Please try again.');
       }
     } finally {
       setIsSubmitting(false);
@@ -77,18 +77,11 @@ export const CheckoutPage: React.FC = () => {
   if (cart.length === 0) {
     return (
       <div className="checkout-page">
-        <div className="checkout-progress" aria-label="Checkout progress">
-          <span className="is-complete">Basket</span>
-          <span className="is-active">Reserve</span>
-          <span>Pay</span>
-          <span>Collect</span>
-        </div>
         <div className="empty-catalog-state page-empty-state">
-          <div className="empty-icon">🧺</div>
-          <h2>Your basket is empty</h2>
-          <p>Add something from the counter before starting a reservation.</p>
-          <Link to="/" className="btn btn-primary">
-            Browse the counter
+          <h2>Your cart is empty</h2>
+          <p>Add items from the catalog before placing a reservation.</p>
+          <Link to="/" className="btn btn-primary btn-sm">
+            Browse Catalog
           </Link>
         </div>
       </div>
@@ -97,32 +90,27 @@ export const CheckoutPage: React.FC = () => {
 
   return (
     <div className="checkout-page">
-      <div className="checkout-progress" aria-label="Checkout progress">
-        <span className="is-complete">Basket</span>
-        <span className="is-active">Reserve</span>
-        <span>Pay</span>
-        <span>Collect</span>
-      </div>
-
-      <div className="checkout-heading">
-        <span className="section-eyebrow">One last look</span>
-        <h1>Review your counter order</h1>
-        <p>
-          Placing the order starts a {holdLabel} hold. Nothing is charged yet.
-        </p>
+      <div className="checkout-header-row">
+        <div>
+          <span className="section-eyebrow">Step 2 of 4: Reserve Stock</span>
+          <h1>Checkout</h1>
+        </div>
+        <div className="checkout-progress" aria-label="Checkout progress">
+          <span className="is-complete">1. Cart</span>
+          <span className="is-active">2. Reserve</span>
+          <span>3. Pay</span>
+          <span>4. Pickup</span>
+        </div>
       </div>
 
       {activeElsewhere && (
         <div className="inline-notice notice-info">
           <div>
-            <strong>You already have a reservation in progress.</strong>
-            <span>
-              Order #{activeElsewhere.id.slice(0, 8).toUpperCase()} may still be holding
-              stock. You can resume it or continue with this new order.
-            </span>
+            <strong>Pending order #{activeElsewhere.id.slice(0, 8).toUpperCase()}</strong>
+            <span>You already have an active reservation holding stock.</span>
           </div>
           <Link to={`/order/${activeElsewhere.id}`} className="btn btn-sm btn-secondary">
-            Resume it
+            Open Existing Order
           </Link>
         </div>
       )}
@@ -133,10 +121,8 @@ export const CheckoutPage: React.FC = () => {
           <div>
             <strong>
               {errorCode === 'INSUFFICIENT_STOCK'
-                ? 'Stock changed before we could reserve it'
-                : errorCode === 'PRODUCT_NOT_FOUND'
-                  ? 'An item left the counter'
-                  : 'We could not reserve your basket'}
+                ? 'Insufficient stock for requested quantities'
+                : 'Unable to reserve items'}
             </strong>
             <p>{errorMessage}</p>
             {shortages.length > 0 && (
@@ -146,16 +132,13 @@ export const CheckoutPage: React.FC = () => {
                     <span>{shortage.name}</span>
                     <span>
                       {shortage.available === 0
-                        ? 'Sold out — removed from basket'
-                        : `Only ${shortage.available} of ${shortage.requested} left — quantity updated`}
+                        ? 'Out of stock (removed)'
+                        : `${shortage.available} of ${shortage.requested} available (updated)`}
                     </span>
                   </li>
                 ))}
               </ul>
             )}
-            <p className="conflict-help">
-              Your basket now reflects the latest stock. Check it over and try again.
-            </p>
             <button
               className="btn btn-sm btn-secondary"
               onClick={() => {
@@ -173,8 +156,8 @@ export const CheckoutPage: React.FC = () => {
       <div className="checkout-layout">
         <section className="checkout-items-panel" aria-labelledby="checkout-items-title">
           <div className="panel-heading">
-            <h2 id="checkout-items-title">Your items</h2>
-            <Link to="/">Add more</Link>
+            <h2 id="checkout-items-title">Items ({cartCount})</h2>
+            <Link to="/">Add more items</Link>
           </div>
 
           <ul className="checkout-item-list">
@@ -190,9 +173,8 @@ export const CheckoutPage: React.FC = () => {
                     <Link to={`/product/${line.product.id}`}>
                       <h3>{line.product.name}</h3>
                     </Link>
-                    <span>{formatRupees(line.product.pricePaise)} each</span>
-                    <span className="checkout-item-stock">
-                      {line.product.availableUnits} available at the counter
+                    <span>
+                      {formatRupees(line.product.pricePaise)} each · {line.product.availableUnits} available
                     </span>
                   </div>
                   <div className="checkout-item-controls">
@@ -202,7 +184,7 @@ export const CheckoutPage: React.FC = () => {
                         onClick={() => setQuantity(line.product.id, line.quantity - 1)}
                         aria-label={`Decrease ${line.product.name} quantity`}
                       >
-                        −
+                        -
                       </button>
                       <span className="stepper-value">{line.quantity}</span>
                       <button
@@ -228,32 +210,22 @@ export const CheckoutPage: React.FC = () => {
               );
             })}
           </ul>
-
-          <div className="checkout-pickup-note">
-            <span className="checkout-pickup-icon">📍</span>
-            <div>
-              <strong>Pickup at the MetroSober counter</strong>
-              <span>Your locker bay is assigned automatically after payment.</span>
-            </div>
-          </div>
         </section>
 
         <aside className="checkout-summary-panel" aria-labelledby="order-summary-title">
-          <h2 id="order-summary-title">Order summary</h2>
+          <h2 id="order-summary-title">Order Summary</h2>
 
           <div className="summary-row">
-            <span>
-              Subtotal · {cartCount} {cartCount === 1 ? 'item' : 'items'}
-            </span>
+            <span>Items ({cartCount})</span>
             <strong>{formatRupees(cartTotalPaise)}</strong>
           </div>
           <div className="summary-row">
-            <span>Counter pickup</span>
+            <span>Counter Pickup</span>
             <strong className="summary-free">Free</strong>
           </div>
-          <div className="summary-row summary-row-muted">
-            <span>Payment</span>
-            <span>Next step</span>
+          <div className="summary-row">
+            <span>Hold Window</span>
+            <span>{holdLabel}</span>
           </div>
 
           <div className="summary-divider"></div>
@@ -262,7 +234,7 @@ export const CheckoutPage: React.FC = () => {
             <span>Total</span>
             <strong>{formatRupees(cartTotalPaise)}</strong>
           </div>
-          <p className="summary-paise-note">{cartTotalPaise} paise · no hidden charges</p>
+          <p className="summary-paise-note">{cartTotalPaise} paise (server-verified at order creation)</p>
 
           <button
             className="btn btn-primary checkout-place-order"
@@ -271,34 +243,16 @@ export const CheckoutPage: React.FC = () => {
           >
             {isSubmitting ? (
               <>
-                <span className="spinner"></span> Checking live stock…
+                <span className="spinner"></span> Reserving stock...
               </>
             ) : (
-              'Reserve & continue to payment'
+              'Reserve Stock & Continue to Payment'
             )}
           </button>
 
           <p className="summary-consent">
-            By reserving, you agree that the {holdLabel} hold will expire. Unpaid holds return
-            to the shelf automatically.
+            Unpaid reservations expire automatically after the {holdLabel} hold window and return stock to the catalog.
           </p>
-
-          <div className="summary-trust">
-            <div>
-              <span>🛡</span>
-              <p>
-                <strong>Server-verified prices</strong>
-                <span>The browser never sends a total.</span>
-              </p>
-            </div>
-            <div>
-              <span>⚡</span>
-              <p>
-                <strong>One shopper wins</strong>
-                <span>Stock can’t be sold twice, even in a race.</span>
-              </p>
-            </div>
-          </div>
         </aside>
       </div>
     </div>

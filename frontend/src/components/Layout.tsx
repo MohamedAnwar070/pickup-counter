@@ -14,10 +14,10 @@ const ActiveReservationBanner: React.FC = () => {
 
   const label =
     activeOrder.status === 'paid'
-      ? 'Your order is paid — collect it from the locker'
+      ? 'Order paid: ready for locker pickup'
       : activeOrder.status === 'needs_review'
-        ? 'Your payment needs a quick counter review'
-        : 'A reservation is in progress';
+        ? 'Payment under counter review'
+        : 'Active stock reservation in progress';
 
   return (
     <div className={`active-reservation-banner tone-${activeOrder.status}`}>
@@ -27,13 +27,12 @@ const ActiveReservationBanner: React.FC = () => {
           <div>
             <strong>{label}</strong>
             <span>
-              Order #{activeOrder.id.slice(0, 8).toUpperCase()} ·{' '}
-              {formatRupees(activeOrder.totalPaise)}
+              Order #{activeOrder.id.slice(0, 8).toUpperCase()} ({formatRupees(activeOrder.totalPaise)})
             </span>
           </div>
         </div>
         <Link to={`/order/${activeOrder.id}`} className="btn btn-sm btn-primary">
-          Resume order
+          Open Order
         </Link>
       </div>
     </div>
@@ -50,7 +49,7 @@ const MobileCartBar: React.FC = () => {
     <div className="mobile-cart-bar">
       <button onClick={openCart}>
         <span className="mobile-cart-count">{cartCount}</span>
-        <span>View basket</span>
+        <span>View Cart</span>
         <strong>{formatRupees(cartTotalPaise)}</strong>
       </button>
     </div>
@@ -88,26 +87,17 @@ export const Layout: React.FC = () => {
       <MobileCartBar />
 
       <footer className="app-footer">
-        <div className="footer-container footer-grid">
-          <div>
-            <span className="footer-brand">Pickup Counter</span>
-            <p>MetroSober artisanal goods, held with care at the counter.</p>
+        <div className="footer-container">
+          <div className="footer-left">
+            <strong>Pickup Counter</strong>
+            <span>MetroSober Self-Service Counter ({formatHoldDuration(holdSeconds)} hold window)</span>
           </div>
           <div className="footer-links">
-            <Link to="/">Shop</Link>
-            <Link to="/orders">My reservations</Link>
-            <Link to="/how-it-works">How it works</Link>
-          </div>
-          <div className="footer-meta">
-            <span>{formatHoldDuration(holdSeconds)} stock holds</span>
-            <span>Server-verified pricing</span>
-            <span>No overselling</span>
+            <Link to="/">Catalog</Link>
+            <Link to="/orders">Orders</Link>
+            <Link to="/how-it-works">How It Works</Link>
           </div>
         </div>
-        <p className="footer-fineprint">
-          Demo checkout for this build · prices shown in ₹ include the exact paise stored
-          server-side.
-        </p>
       </footer>
     </div>
   );

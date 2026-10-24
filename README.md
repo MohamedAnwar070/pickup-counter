@@ -161,8 +161,8 @@ expired (after sweeper or read)
 
 ## 3. Code Organization & Common Modules
 
-- `backend/src/common/`: Shared internally across backend modules—canonical domain constants (`HOLD_SECONDS = 120`, `MAX_ORDER_QUANTITY`, `ERROR_CODES`), TypeScript contracts (`Product`, `Order`, `OrderStatus`, `WebhookPayload`), money arithmetic helpers (`toPaise`, `formatRupees`, `paiseToRupees`), PostgreSQL connection pool & `withTransaction`, HMAC-SHA256 verification, time arithmetic, `AppError`, `AllExceptionsFilter`, and `ZodValidationPipe`.
-- `frontend/src/common/`: Shared internally across frontend pages and components—TypeScript API contracts (`Product`, `GetOrderResponse`, `OrderStatus`), currency formatting (`formatRupees`), hold duration formatting (`formatHoldDuration`), and Web Audio feedback (`sound`).
+- `backend/src/common/`: Shared internally across backend modules: canonical domain constants (`HOLD_SECONDS = 120`, `MAX_ORDER_QUANTITY`, `ERROR_CODES`), TypeScript contracts (`Product`, `Order`, `OrderStatus`, `WebhookPayload`), money arithmetic helpers (`toPaise`, `formatRupees`, `paiseToRupees`), PostgreSQL connection pool & `withTransaction`, HMAC-SHA256 verification, time arithmetic, `AppError`, `AllExceptionsFilter`, and `ZodValidationPipe`.
+- `frontend/src/common/`: Shared internally across frontend pages and components: TypeScript API contracts (`Product`, `GetOrderResponse`, `OrderStatus`), currency formatting (`formatRupees`), hold duration formatting (`formatHoldDuration`), and Web Audio feedback (`sound`).
 - `backend/src/modules/`: Modular domain design:
   - `inventory`: Stock reservation query (`getHeldUnits`) and permanent decrement (`decrementStock`).
   - `products`: Product catalog listing and availability calculation.

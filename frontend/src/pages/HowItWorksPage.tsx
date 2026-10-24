@@ -6,132 +6,88 @@ import { formatHoldDuration } from '../common';
 export const HowItWorksPage: React.FC = () => {
   const { holdSeconds } = useShop();
   const holdLabel = formatHoldDuration(holdSeconds);
+
   return (
     <div className="info-page">
-      <section className="info-hero">
-        <span className="section-eyebrow">The pickup counter promise</span>
-        <h1>Reserved means reserved.</h1>
-        <p>
-          Pickup Counter is built around one simple idea: when you reserve something, another
-          shopper should not be able to buy it out from under you. Here is how that works in
-          practice.
-        </p>
-        <div className="info-hero-actions">
-          <Link to="/" className="btn btn-primary">
-            Shop the counter
+      <div className="info-header">
+        <div>
+          <span className="section-eyebrow">System Guide</span>
+          <h1>How Pickup Counter Works</h1>
+          <p>
+            Stock reservations, payment verification, and locker collection rules.
+          </p>
+        </div>
+        <div className="info-header-actions">
+          <Link to="/" className="btn btn-primary btn-sm">
+            Browse Catalog
           </Link>
-          <Link to="/orders" className="btn btn-secondary">
-            My reservations
+          <Link to="/orders" className="btn btn-secondary btn-sm">
+            My Orders
           </Link>
         </div>
-      </section>
+      </div>
 
       <section className="info-section">
-        <div className="section-heading-row">
-          <div>
-            <span className="section-eyebrow">From shelf to locker</span>
-            <h2 className="section-heading">Four calm steps</h2>
-          </div>
-        </div>
         <div className="info-steps">
           <div className="info-step">
             <span>01</span>
-            <h3>Build your basket</h3>
+            <h3>Select Items</h3>
             <p>
-              Availability is live. If someone else is holding the last units, the card tells
-              you before you click.
+              Available units equal physical stock minus active holds and paid uncollected orders.
             </p>
           </div>
           <div className="info-step">
             <span>02</span>
-            <h3>Place your reservation</h3>
+            <h3>Reserve ({holdLabel} Hold)</h3>
             <p>
-              The counter checks the stock again inside one database transaction and gives you
-              a {holdLabel} exclusive hold. If another shopper won the race, we adjust your
-              basket and show you exactly what changed.
+              Placing an order locks product rows in ascending ID order inside a database transaction and starts a {holdLabel} timer.
             </p>
           </div>
           <div className="info-step">
             <span>03</span>
-            <h3>Pay while the timer runs</h3>
+            <h3>Complete Payment</h3>
             <p>
-              Your payment outcome comes from the server, never the browser. If the hold ends
-              before payment is confirmed, the stock releases automatically. If a payment
-              lands late, the counter checks availability and never oversells.
+              Payments are verified via HMAC-SHA256 webhooks with database-enforced idempotency on event IDs.
             </p>
           </div>
           <div className="info-step">
             <span>04</span>
-            <h3>Collect from your locker</h3>
+            <h3>Claim from Locker</h3>
             <p>
-              A bay and pickup code are assigned to each order. The locker claim is atomic:
-              two simultaneous opens still produce one winner and one stock decrement.
+              Opening the assigned locker bay transitions the order to picked up and permanently decrements stock once.
             </p>
           </div>
         </div>
       </section>
 
       <section className="info-section">
-        <div className="section-heading-row">
-          <div>
-            <span className="section-eyebrow">Honest details</span>
-            <h2 className="section-heading">What happens when things go sideways</h2>
-          </div>
-        </div>
+        <h2 className="info-subheading">Edge Cases & Concurrency Rules</h2>
         <div className="info-faq">
           <details open>
-            <summary>Someone took the last unit while I was checking out</summary>
+            <summary>Multiple buyers racing for the last units</summary>
             <p>
-              The order is not created. Your basket is updated to the latest available
-              quantities and each affected item is explained. No partial order is left behind.
+              Orders lock product rows using SELECT ... FOR UPDATE ORDER BY id ASC. If stock is insufficient for any line item, the entire transaction rolls back and returns 409 INSUFFICIENT_STOCK with itemised shortage details.
             </p>
           </details>
           <details>
-            <summary>Can I cancel a reservation?</summary>
+            <summary>Cancelling an active hold</summary>
             <p>
-              Yes — while it is still pending and unpaid. Cancelling immediately releases the
-              hold. Once a payment is confirmed, cancellation is no longer possible; the order
-              is ready for pickup instead.
+              Pending reservations can be cancelled at any time before payment or expiry. Cancellation immediately releases the held units back to the catalog.
             </p>
           </details>
           <details>
-            <summary>What if my payment arrives after the timer?</summary>
+            <summary>Late payments arriving after the timer ends</summary>
             <p>
-              The server never trusts the browser timer. If the payment provider confirms a
-              late payment and every item is still available, the order is accepted. Otherwise
-              it goes to a counter review with a refund flag; it is never marked paid for stock
-              that is gone.
+              When a valid payment arrives after expiry, the server locks the product rows and checks live availability. If stock is still available, the order is accepted as paid_late. If another buyer claimed the stock, the order is marked needs_review with refund_flag set to true.
             </p>
           </details>
           <details>
-            <summary>Is this a live payment gateway?</summary>
+            <summary>Device clock drift protection</summary>
             <p>
-              No. This build uses a clearly labelled sandbox checkout so the full flow can be
-              reviewed end-to-end. The server has a gated demo payment route and also supports
-              real HMAC-signed provider webhooks. No webhook secret is exposed to the browser,
-              and no card details are collected.
-            </p>
-          </details>
-          <details>
-            <summary>Where are my orders stored?</summary>
-            <p>
-              In this browser, so you can close the tab and resume. The order itself lives on
-              the server. You can always reopen it from My reservations; the page re-checks its
-              live status.
+              The backend uses PostgreSQL clock_timestamp() for all expiry checks. The frontend countdown uses monotonic performance.now() relative to server-computed expiresInSeconds, so an inaccurate phone or laptop clock never affects the timer.
             </p>
           </details>
         </div>
-      </section>
-
-      <section className="info-cta">
-        <div>
-          <span className="section-eyebrow">The shelf is waiting</span>
-          <h2>Find something worth holding.</h2>
-          <p>Five small-batch favourites, reserved one shopper at a time.</p>
-        </div>
-        <Link to="/" className="btn btn-primary">
-          Browse the counter
-        </Link>
       </section>
     </div>
   );

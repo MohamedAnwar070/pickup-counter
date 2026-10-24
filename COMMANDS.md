@@ -1,4 +1,4 @@
-# Pickup Counter — Commands & Developer Guide
+# Pickup Counter: Commands & Developer Guide
 
 Quick, simple reference for running, testing, and developing the project.
 

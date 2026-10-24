@@ -10,11 +10,10 @@ import { HowItWorksPage } from './pages/HowItWorksPage';
 
 const NotFoundPage: React.FC = () => (
   <div className="empty-catalog-state page-empty-state">
-    <div className="empty-icon">🧭</div>
-    <h2>That counter aisle doesn’t exist</h2>
-    <p>The page may have moved, or the link may be incomplete.</p>
-    <Link to="/" className="btn btn-primary">
-      Back to the shop
+    <h2>Page not found</h2>
+    <p>The requested page does not exist.</p>
+    <Link to="/" className="btn btn-primary btn-sm">
+      Back to Catalog
     </Link>
   </div>
 );

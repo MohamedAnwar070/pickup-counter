@@ -6,19 +6,19 @@ import { useOrders, SavedOrder } from '../state/OrdersContext';
 const statusLabels: Record<OrderStatus, string> = {
   pending: 'Awaiting payment',
   paid: 'Ready for pickup',
-  expired: 'Hold expired',
+  expired: 'Expired',
   needs_review: 'Needs review',
-  picked_up: 'Collected',
+  picked_up: 'Picked up',
   cancelled: 'Cancelled',
 };
 
 const statusHelp: Record<OrderStatus, string> = {
-  pending: 'Your hold may still be active. Open the order to see the live timer.',
-  paid: 'Your locker is ready at the MetroSober counter.',
-  expired: 'The hold ended without payment. Nothing was charged.',
-  needs_review: 'The counter team is checking this payment. Do not pay again.',
-  picked_up: 'Collected from the locker. Your receipt is available in the order.',
-  cancelled: 'This reservation was cancelled and the stock was released.',
+  pending: 'Hold active. Open order to complete payment.',
+  paid: 'Payment verified. Ready for locker collection.',
+  expired: 'Hold expired before payment.',
+  needs_review: 'Flagged for counter staff review.',
+  picked_up: 'Collected from locker.',
+  cancelled: 'Cancelled by customer; stock released.',
 };
 
 const isActive = (status: OrderStatus) =>
@@ -28,7 +28,6 @@ const formatDate = (timestamp: number) =>
   new Date(timestamp).toLocaleString('en-IN', {
     day: 'numeric',
     month: 'short',
-    year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -59,61 +58,48 @@ export const OrdersPage: React.FC = () => {
     <div className="orders-page">
       <div className="orders-heading">
         <div>
-          <span className="section-eyebrow">Saved on this device</span>
-          <h1>My reservations</h1>
-          <p>
-            Pick up where you left off. Your order stays here even if you close the tab or
-            lose the payment screen.
-          </p>
+          <span className="section-eyebrow">Browser History</span>
+          <h1>My Orders ({orders.length})</h1>
         </div>
-        <button className="btn btn-secondary" onClick={refresh} disabled={isRefreshing}>
-          {isRefreshing ? 'Checking counter…' : 'Refresh statuses'}
-        </button>
-      </div>
-
-      <div className="orders-filter-row">
-        <div className="orders-filters" role="tablist" aria-label="Filter reservations">
-          {(
-            [
-              ['all', 'All'],
-              ['active', 'In progress'],
-              ['complete', 'Completed'],
-            ] as Array<[Filter, string]>
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              role="tab"
-              aria-selected={filter === value}
-              className={`orders-filter ${filter === value ? 'is-active' : ''}`}
-              onClick={() => setFilter(value)}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="orders-controls">
+          <div className="orders-filters" role="tablist" aria-label="Filter orders">
+            {(
+              [
+                ['all', 'All'],
+                ['active', 'Active'],
+                ['complete', 'Completed'],
+              ] as Array<[Filter, string]>
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                role="tab"
+                aria-selected={filter === value}
+                className={`orders-filter ${filter === value ? 'is-active' : ''}`}
+                onClick={() => setFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={refresh} disabled={isRefreshing}>
+            {isRefreshing ? 'Refreshing...' : 'Refresh Status'}
+          </button>
         </div>
-        <span className="orders-count">
-          {orders.length} saved {orders.length === 1 ? 'reservation' : 'reservations'}
-        </span>
       </div>
 
       {orders.length === 0 ? (
         <div className="empty-catalog-state page-empty-state">
-          <div className="empty-icon">🧾</div>
-          <h2>No reservations yet</h2>
-          <p>
-            Start an order at the counter. Once you reserve, it will appear here so you can
-            always find it again.
-          </p>
-          <Link to="/" className="btn btn-primary">
-            Browse the counter
+          <h2>No orders yet</h2>
+          <p>Reserve items from the catalog to view and manage your orders here.</p>
+          <Link to="/" className="btn btn-primary btn-sm">
+            Browse Catalog
           </Link>
         </div>
       ) : filteredOrders.length === 0 ? (
         <div className="empty-catalog-state page-empty-state">
-          <h2>Nothing in this view</h2>
-          <p>Try another filter to see your other reservations.</p>
-          <button className="btn btn-secondary" onClick={() => setFilter('all')}>
-            Show all reservations
+          <h2>No matching orders</h2>
+          <button className="btn btn-secondary btn-sm" onClick={() => setFilter('all')}>
+            Show All Orders
           </button>
         </div>
       ) : (
@@ -123,14 +109,6 @@ export const OrdersPage: React.FC = () => {
           ))}
         </div>
       )}
-
-      <div className="orders-footnote">
-        <span>🔒</span>
-        <p>
-          Reservation history is stored in this browser for privacy. Opening an order checks
-          its live status with the counter. On another device, use the order link.
-        </p>
-      </div>
     </div>
   );
 };
@@ -139,38 +117,34 @@ const OrderRow: React.FC<{ order: SavedOrder }> = ({ order }) => {
   const active = isActive(order.status);
   const actionLabel =
     order.status === 'pending'
-      ? 'Resume payment'
+      ? 'Pay Now'
       : order.status === 'paid'
-        ? 'View locker'
-        : 'Open order';
+        ? 'Open Locker'
+        : 'Details';
 
   return (
     <article className={`order-row status-${order.status}`}>
-      <div className="order-row-marker" aria-hidden="true">
-        {order.status === 'paid' ? '🔐' : order.status === 'picked_up' ? '✓' : '◷'}
-      </div>
       <div className="order-row-main">
         <div className="order-row-topline">
+          <h2>Order #{order.id.slice(0, 8).toUpperCase()}</h2>
           <span className={`order-status-badge status-${order.status}`}>
             <span className="status-badge-dot"></span>
             {statusLabels[order.status]}
           </span>
           <span className="order-row-date">{formatDate(order.createdAt)}</span>
         </div>
-        <h2>Order #{order.id.slice(0, 8).toUpperCase()}</h2>
         <p>{statusHelp[order.status]}</p>
         <div className="order-row-meta">
           <span>{formatRupees(order.totalPaise)}</span>
           {order.lockerNumber && (
-            <span>Locker bay {String(order.lockerNumber).padStart(2, '0')}</span>
+            <span>Locker Bay {String(order.lockerNumber).padStart(2, '0')}</span>
           )}
-          {order.status === 'pending' && <span>Hold timer live</span>}
         </div>
       </div>
       <div className="order-row-action">
         <Link
           to={`/order/${order.id}`}
-          className={`btn ${active ? 'btn-primary' : 'btn-secondary'}`}
+          className={`btn btn-sm ${active ? 'btn-primary' : 'btn-secondary'}`}
         >
           {actionLabel}
         </Link>
