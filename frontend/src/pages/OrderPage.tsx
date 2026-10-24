@@ -165,9 +165,18 @@ export const OrderPage: React.FC = () => {
     try {
       await claimPickup(order.id);
       sound.playLockerUnlock();
-      setOrder((current) => (current ? { ...current, status: 'picked_up' } : current));
+      setOrder((current) =>
+        current
+          ? {
+              ...current,
+              status: 'picked_up',
+              pickedUpAt: current.pickedUpAt ?? new Date().toISOString(),
+            }
+          : current,
+      );
       updateOrderStatus(order.id, 'picked_up');
       previousStatus.current = 'picked_up';
+      await loadOrder(true).catch(() => undefined);
     } catch (error) {
       setClaimError(
         error instanceof ApiError ? error.message : 'Unable to claim locker pickup.',
@@ -530,7 +539,7 @@ export const OrderPage: React.FC = () => {
                   <span className="success-kicker">Completed</span>
                   <h2>Order Collected</h2>
                   <p>
-                    Collected from {lockerLabel ?? 'the locker'}. Physical stock has been permanently decremented.
+                    Collected from {lockerLabel ?? 'the locker'}. Reservation and pickup are complete.
                   </p>
                 </div>
               </div>

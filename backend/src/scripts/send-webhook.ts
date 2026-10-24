@@ -9,6 +9,7 @@ loadLocalEnv();
 function parseArgs(): Record<string, string | boolean> {
   const args = process.argv.slice(2);
   const result: Record<string, string | boolean> = {};
+  const positional: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -20,7 +21,38 @@ function parseArgs(): Record<string, string | boolean> {
       } else {
         result[key] = true;
       }
+    } else {
+      positional.push(arg);
     }
+  }
+
+  // Fallback for nested npm scripts or PowerShell stripping `--flag` names
+  if (!result.orderId && !result['order-id']) {
+    if (process.env.npm_config_orderid && process.env.npm_config_orderid !== 'true') {
+      result.orderId = process.env.npm_config_orderid;
+    } else if (positional[0]) {
+      result.orderId = positional[0];
+    }
+  }
+
+  if (result.amount === undefined) {
+    if (process.env.npm_config_amount && process.env.npm_config_amount !== 'true') {
+      result.amount = process.env.npm_config_amount;
+    } else if (positional[1] && /^-?\d+$/.test(positional[1])) {
+      result.amount = positional[1];
+    }
+  }
+
+  if (!result.status && process.env.npm_config_status && process.env.npm_config_status !== 'true') {
+    result.status = process.env.npm_config_status;
+  }
+
+  if (!result.eventId && process.env.npm_config_eventid && process.env.npm_config_eventid !== 'true') {
+    result.eventId = process.env.npm_config_eventid;
+  }
+
+  if (!result['bad-sig'] && !result.badSig && process.env.npm_config_bad_sig === 'true') {
+    result['bad-sig'] = true;
   }
 
   return result;
